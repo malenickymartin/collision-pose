@@ -1,5 +1,7 @@
 __pycache__/
 out/
+eval/data/*
+!eval/data/floor.ply
 
 *.pkl
 *.obj

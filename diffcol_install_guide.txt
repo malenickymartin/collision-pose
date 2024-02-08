@@ -1,0 +1,50 @@
+git clone --recursive git@github.com:lmontaut/diffcol.git -b normal_reformulation
+
+conda create -n diffcol python=3.8
+conda activate diffcol
+conda install cmake
+conda install -c conda-forge urdfdom boost eigenpy hpp-fcl gcc
+
+cd diffcol
+mkdir libs
+cd libs
+# download pin3 and copy here
+git clone -b pinocchio-3x git@gitlab.inria.fr:jucarpen/pinocchio.git --recursive  #if you have access by INRIA
+cd pinocchio
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX:PATH=$CONDA_PREFIX -DBUILD_WITH_COLLISION_SUPPORT=ON
+make -j X install		# X ... number of processor cores you want to use for install
+
+cd ../../..
+
+cd cmake 
+git checkout master
+cd ..
+cp cmake/python-helpers.cmake hpp-fcl/cmake/
+
+# add this line:
+include(${PROJECT_SOURCE_DIR}/cmake/python-helpers.cmake) 
+# to files diffcol/hpp-fcl/python/CMakeLists.txt and diffcol/bindings/CMakeLists.txt
+
+
+# add "#include <boost/type_index.hpp>" into diffcol/hpp-fcl/python/broadphase/broadphase_collision_manager.hh
+cd hpp-fcl
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX:PATH=$CONDA_PREFIX -DHPP_FCL_HAS_QHULL=ON
+make -j X install
+
+cd ../..
+mkdir build
+cd build
+cmake .. -DCMAKE_INSTALL_PREFIX:PATH=$CONDA_PREFIX # maybe -DINSATLL_PYTHON_INTERFACE=ON
+make -j X install
+
+pip install matplotlib meshcat
+
+#To run example:
+meshcat-server --zmq-url=tcp://127.0.0.1:6000
+
+export PYTHONPATH="${PYTHONPATH}:`pwd`/build/bindings/"
+python exp/randomized_smoothing_manipulation.py

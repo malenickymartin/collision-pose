@@ -1,6 +1,7 @@
 import time
 from copy import deepcopy
 from dataclasses import dataclass
+from tqdm import tqdm
 import numpy as np
 from numpy.linalg import norm
 import pinocchio as pin
@@ -48,7 +49,12 @@ X_init = deepcopy(X_meas)
 N_SHAPES = len(wMo_lst)
 path_objs = N_SHAPES*["meshes/icosphere.obj"]
 
-dc_scene = DiffColScene(path_objs)
+path_stat_objs = ["eval/data/floor.ply", "eval/data/floor.ply"]
+wMs_lst = [pin.SE3(np.eye(4)), pin.SE3(np.eye(4))]
+wMs_lst[0].translation[2] = 1.75
+wMs_lst[1].rotation = np.array([[np.cos(np.pi/3),0,np.sin(np.pi/3)],[0,1,0],[-np.sin(np.pi/3),0,np.cos(np.pi/3)]])
+
+dc_scene = DiffColScene(path_objs, path_stat_objs, wMs_lst)
     
 args = SelectStrategyConfig()
 args.noise = 1e-2
@@ -63,8 +69,9 @@ col_req, col_req_diff = select_strategy(args)
 # method = 'rmsprop'
 method = 'adam'   # Seems to be the best
 
-N_step = 100
+N_step = 20
 cost_c_lst, grad_c_norm = [], []
+cost_c_stat_lst, grad_c_stat_norm = [], []
 cost_pt_lst, cost_po_lst, grad_p_norm = [], [], []
 cost_pt_gt_lst, cost_po_gt_lst = [], []
 X = deepcopy(X_init)
@@ -94,7 +101,7 @@ v_adam = np.zeros(6*N_SHAPES)
 dx = np.zeros(6*N_SHAPES)
 scale_grad_col = 1
 # 
-for i in range(N_step):
+for i in tqdm(range(N_step)):
     X_lst.append(deepcopy(X))
     if i % 100 == 0: 
         print(f'i/N_step: {i}/{N_step}') 
@@ -108,7 +115,10 @@ for i in range(N_step):
         # Evaluate gradient at current state
         X_eval = X
 
-    cost_c, grad_c = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff)
+    cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff)
+    cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff)
+    cost_c = cost_c_obj + cost_c_stat
+    grad_c = grad_c_obj + grad_c_stat
     # cost_c, grad_c = 0.0, np.zeros(dx.shape)
     res_p, grad_p = perception_res_grad(X_eval, X_meas)
     # res_p, grad_p = np.zeros(dx.shape), np.zeros(dx.shape)
@@ -137,8 +147,10 @@ for i in range(N_step):
     X = update_est(X, dx)
 
     # Logs
-    cost_c_lst.append(cost_c)
-    grad_c_norm.append(norm(grad_c))
+    cost_c_lst.append(cost_c_obj)
+    cost_c_stat_lst.append(cost_c_stat)
+    grad_c_norm.append(norm(grad_c_obj))
+    grad_c_stat_norm.append(norm(grad_c_stat))
     
     res2cost = lambda r: 0.5*sum(r**2)
 
@@ -157,11 +169,15 @@ for i in range(N_step):
 import matplotlib.pyplot as plt
 steps = np.arange(len(cost_c_lst))
 
-fig, ax = plt.subplots(2)
-ax[0].plot(steps, cost_c_lst)
-ax[0].set_title('cost collision')
-ax[1].plot(steps, grad_c_norm)
-ax[1].set_title('grad norm collision')
+fig, ax = plt.subplots(2, 2)
+ax[0,0].plot(steps, cost_c_lst)
+ax[0,0].set_title('cost collision')
+ax[1,0].plot(steps, grad_c_norm)
+ax[1,0].set_title('grad norm collision')
+ax[0,1].plot(steps, cost_c_stat_lst)
+ax[0,1].set_title('cost collision static')
+ax[1,1].plot(steps, grad_c_stat_norm)
+ax[1,1].set_title('grad norm collision static')
 fig.legend()
 
 fig, ax = plt.subplots(3)
@@ -184,21 +200,24 @@ if MESHCAT_VIS:
     print('Create vis')
     vis = create_visualizer()
     cost_c, grad_c = dc_scene.compute_diffcol(wMo_lst, col_req, col_req_diff)
-    draw_scene(vis, dc_scene.shapes, wMo_lst, dc_scene.col_res_pairs, render_faces=False)
+    input("Continue?")
     print('GT!')
-    time.sleep(1)
+    draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, wMo_lst, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    time.sleep(4)
     print('measured!')
-    draw_scene(vis, dc_scene.shapes, X_meas, dc_scene.col_res_pairs, render_faces=False)
-    time.sleep(1)
+    draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, X_meas, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    time.sleep(4)
     print('optimized!')
-    draw_scene(vis, dc_scene.shapes, X, dc_scene.col_res_pairs, render_faces=False)
+    draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, X, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    time.sleep(4)
 
     # Process
     for Xtmp in X_lst:
         # Recompute collision between pairs for visualization (TODO: should be stored)
         dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
-        draw_scene(vis, dc_scene.shapes, Xtmp, dc_scene.col_res_pairs, render_faces=False)
-
+        dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
+        draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, Xtmp, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    print("Animation done!")
 
 plt.show()
 

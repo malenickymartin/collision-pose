@@ -11,7 +11,7 @@ from pydiffcol.utils import (
     constructPolyhedralEllipsoid,
     constructDiamond, 
 )
-from pydiffcol.utils_render import draw_shape, draw_witness_points, RED, GREEN
+from pydiffcol.utils_render import draw_shape, draw_witness_points, RED, GREEN, BLUE
 
 from spatial import normalize_se3
 
@@ -46,29 +46,43 @@ def create_shape(shape_type: str, num_subdiv=1, path_mesh=None):
 
 def draw_scene(vis: meshcat.Visualizer,
                shape_lst: List[hppfcl.ShapeBase],
-               M_lst: List[pin.SE3],
+               stat_shape_lst: List[hppfcl.ShapeBase],
+               wMo_lst: List[pin.SE3],
+               wMs_lst: List[pin.SE3],
                col_res_pairs: Dict[Tuple[int,int], pydiffcol.DistanceResult],
+               col_res_pairs_stat: Dict[Tuple[int,int], pydiffcol.DistanceResult],
                render_faces: bool = False,
                radius_points = 3e-3):
     
-    in_collision = {}
+    in_collision_obj = {}
     for (id1, id2), col_res in col_res_pairs.items():
         col = col_res.dist < 0.0
-        if id1 not in in_collision:
-            in_collision[id1] = col
-        if id2 not in in_collision:
-            in_collision[id2] = col
+        if id1 not in in_collision_obj:
+            in_collision_obj[id1] = col
+        if id2 not in in_collision_obj:
+            in_collision_obj[id2] = col
 
-        in_collision[id1] = in_collision[id1] or col
-        in_collision[id2] = in_collision[id2] or col
+        in_collision_obj[id1] = in_collision_obj[id1] or col
+        in_collision_obj[id2] = in_collision_obj[id2] or col
 
-        # M1, M2 = M_lst[id1], M_lst[id2]
+        # M1, M2 = wMo_lst[id1], wMo_lst[id2]
         # draw_witness_points(vis, M1 * col_res.w1, M2 * col_res.w2, radius_points=radius_points)
+    in_collision_stat = {}
+    for (id_obj, id_stat), col_res in col_res_pairs_stat.items():
+        col = col_res.dist < 0.0
+        if id_stat not in in_collision_stat:
+            in_collision_stat[id_stat] = col
 
-    for i, (shape, M) in enumerate(zip(shape_lst, M_lst)):
-        c = RED if in_collision[i] else GREEN
+        in_collision_obj[id_obj] = in_collision_obj[id_obj] or col
+        in_collision_stat[id_stat] = in_collision_stat[id_stat] or col
+
+    for i, (shape, M) in enumerate(zip(shape_lst, wMo_lst)):
+        c = BLUE if in_collision_obj[i] else GREEN
         # TODO: bottlebeck, might be possible to speed up by calling once pydiffcol.utils_render.loadCVX 
         draw_shape(vis, shape, f"shape{i}", M, color=c, render_faces=render_faces)
+    for i, (shape, M) in enumerate(zip(stat_shape_lst, wMs_lst)):
+        c = BLUE if in_collision_stat[i] else GREEN
+        draw_shape(vis, shape, f"stat_shape{i}", M, color=c, render_faces=render_faces)
 
 
 def get_permutation_indices(N):
@@ -134,22 +148,33 @@ class DiffColScene:
     - broadphase 
 
     """
-    def __init__(self, obj_paths: List[str]) -> None:
+    def __init__(self, obj_paths: List[str], stat_obj_paths: List[str] = [], wMs_lst: List[pin.SE3] = []) -> None:
+
+        assert len(stat_obj_paths) == len(wMs_lst)
+
         self.col_res_pairs = {}
         self.col_res_diff_pairs = {}
+        self.col_res_pairs_stat = {}
         self.shapes = []
+        self.stat_shapes = []
         self.mesh_loader = hppfcl.MeshLoader()
+
         for obj_path in obj_paths:
             self.shapes.append(self.create_mesh(obj_path))
+        
+        self.wMs_lst = wMs_lst
+        for stat_obj_path in stat_obj_paths:
+            self.stat_shapes.append(self.create_mesh(stat_obj_path))
+
 
     def compute_diffcol(self, wMo_lst: List[pin.SE3], col_req, col_req_diff, diffcol=True):
         # Compute col and diffcol for all pairs
         N = len(wMo_lst)
-        self.index_pairs = get_permutation_indices(N)
+        index_pairs = get_permutation_indices(N)
         grad = np.zeros(6*N)
         cost_c = 0.0
 
-        for i1, i2 in self.index_pairs:
+        for i1, i2 in index_pairs:
             shape1, shape2 = self.shapes[i1], self.shapes[i2] 
             M1, M2 = wMo_lst[i1], wMo_lst[i2] 
             col_res = pydiffcol.DistanceResult()
@@ -157,6 +182,7 @@ class DiffColScene:
             # TODO: implement broadphase
             _ = pydiffcol.distance(shape1, M1, shape2, M2, col_req, col_res)
             if diffcol and col_res.dist < 0:
+                ############################################################################### FOR DECOMPOSITION distance derivatives convex dec
                 pydiffcol.distance_derivatives(shape1, M1, shape2, M2, col_req, col_res, col_req_diff, col_res_diff)
 
             # include max(-phi(M1,M2), 0) gradient blocks
@@ -169,6 +195,34 @@ class DiffColScene:
             self.col_res_diff_pairs[(i1, i2)] = col_res_diff
 
         return cost_c, grad
+    
+
+    def compute_diffcol_static(self, wMo_lst: List[pin.SE3], col_req, col_req_diff, diffcol=True):
+        # Compute col and diffcol for all objects and floor
+        N = len(wMo_lst)
+        M = len(self.wMs_lst)
+        grad = np.zeros(6*N)
+        cost_c = 0.0
+
+        for i in range(N):
+            for j in range(M):
+                shape_obj = self.shapes[i]
+                shape_stat = self.stat_shapes[j]
+                wMo = wMo_lst[i]
+                wMs = self.wMs_lst[j]
+                col_res = pydiffcol.DistanceResult()
+                col_res_diff = pydiffcol.DerivativeResult()
+                _ = pydiffcol.distance(shape_obj, wMo, shape_stat, wMs, col_req, col_res)
+                if diffcol and col_res.dist < 0:
+                    pydiffcol.distance_derivatives(shape_obj, wMo, shape_stat, wMs, col_req, col_res, col_req_diff, col_res_diff)
+                if col_res.dist < 0:
+                    cost_c += -col_res.dist
+                    grad[6*i:6*i+6] += -col_res_diff.ddist_dM1
+
+                self.col_res_pairs_stat[(i, j)] = col_res
+
+        return cost_c, grad
+
 
     def create_mesh(self, obj_path: str):
         mesh: hppfcl.BVHModelBase = self.mesh_loader.load(obj_path)

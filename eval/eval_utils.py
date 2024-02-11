@@ -16,7 +16,7 @@ from pydiffcol.utils_render import create_visualizer, draw_scene, renderPoint, d
 
 FLOOR_MESH_PATH = Path(os.path.realpath(__file__)).parent / "data" / "floor.ply"
 
-def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False, bring_to_zero=False):
+def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False, bring_to_zero=False) -> float:
     """
     Calculates the distance between two meshes.
     Inputs:
@@ -106,7 +106,7 @@ def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False
     return d
 
 
-def get_dist_decomp(shape_1, shape_2, M1, M2):
+def get_dist_decomp(shape_1, shape_2, M1, M2) -> float:
     """
     Calculates the distance between two decomposed meshes.
     Inputs:
@@ -134,7 +134,7 @@ def get_dist_decomp(shape_1, shape_2, M1, M2):
     return min_dist
 
 
-def get_se3_from_mp_json(pred: dict):
+def get_se3_from_mp_json(pred: dict) -> pin.SE3:
     """
     Calculates pin.SE3 pose of object predicted by Megapose. The pose consists of orthogonal rotation matrix and translation in meters.
     Inputs:
@@ -152,7 +152,7 @@ def get_se3_from_mp_json(pred: dict):
     return se3
 
 
-def get_se3_from_gt(pred: dict):
+def get_se3_from_gt(pred: dict) -> pin.SE3:
     """
     Calculates pin.SE3 pose of object in Blenderproc/BOP scene. The pose consists of orthogonal rotation matrix and translation in meters.
     Inputs:
@@ -170,7 +170,7 @@ def get_se3_from_gt(pred: dict):
     return se3
 
 
-def get_se3_from_bp_cam(gt_cam: dict):
+def get_se3_from_bp_cam(gt_cam: dict) -> pin.SE3:
     """
     Calculates pin.SE3 pose of camera in Blenderproc scene. The pose consists of orthogonal rotation matrix and translation in meters.
     Inputs:
@@ -186,7 +186,7 @@ def get_se3_from_bp_cam(gt_cam: dict):
     return se3
 
 
-def get_se3_from_mp_csv(data: dict, i: int):
+def get_se3_from_mp_csv(data: dict, i: int) -> pin.SE3:
     """
     Calculates pin.SE3 pose of object predicted by Megapose. The pose consists of orthogonal rotation matrix and translation in meters.
     Inputs:

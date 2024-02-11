@@ -54,14 +54,9 @@ def draw_scene(vis: meshcat.Visualizer,
                render_faces: bool = False,
                radius_points = 3e-3):
     
-    in_collision_obj = {}
+    in_collision_obj = {i:False for i in range(len(shape_lst))}
     for (id1, id2), col_res in col_res_pairs.items():
         col = col_res.dist < 0.0
-        if id1 not in in_collision_obj:
-            in_collision_obj[id1] = col
-        if id2 not in in_collision_obj:
-            in_collision_obj[id2] = col
-
         in_collision_obj[id1] = in_collision_obj[id1] or col
         in_collision_obj[id2] = in_collision_obj[id2] or col
 

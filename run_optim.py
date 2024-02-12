@@ -202,21 +202,22 @@ if MESHCAT_VIS:
     cost_c, grad_c = dc_scene.compute_diffcol(wMo_lst, col_req, col_req_diff)
     input("Continue?")
     print('GT!')
-    draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, wMo_lst, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, wMo_lst, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
     time.sleep(4)
     print('measured!')
-    draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, X_meas, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, X_meas, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
     time.sleep(4)
     print('optimized!')
-    draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, X, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+    draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, X, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
     time.sleep(4)
 
     # Process
+    print("Animation start!")
     for Xtmp in X_lst:
         # Recompute collision between pairs for visualization (TODO: should be stored)
         dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
         dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
-        draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, Xtmp, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+        draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, Xtmp, wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
     print("Animation done!")
 
 plt.show()

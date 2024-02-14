@@ -25,7 +25,7 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
     X = deepcopy(wMo_lst_init)
     X_lst = []
 
-    N_SHAPES = len(dc_scene.shapes)
+    N_SHAPES = len(dc_scene.shapes_convex)
 
     # consts
     learning_rate = 0.0001
@@ -67,10 +67,10 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
         dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
         input("Continue?")
         print('Init!')
-        draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+        draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
         time.sleep(5)
         print('Optimized!')
-        draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+        draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
         time.sleep(5)
 
         # Process
@@ -80,7 +80,7 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
             time.sleep(0.1)
             dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
             dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
-            draw_scene(vis, dc_scene.shapes, dc_scene.stat_shapes, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
+            draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
         print("Animation done!")
     
     return X
@@ -110,6 +110,7 @@ def main():
         mesh_label = int(mesh_dir_path.name)
         mesh_path = mesh_dir_path / f"obj_{mesh_label:06d}.ply"
         mesh_objs_dict[mesh_label] = create_mesh(mesh_loader, str(mesh_path))
+    static_meshes = [create_mesh(mesh_loader, str(p)) for p in path_stat_objs]
     
     path_wMo_all = Path("eval/data/ycbv_convex_two/happypose/outputs")
     gt_cam_path = Path("eval/data/ycbv_convex_two/train_pbr/000000/scene_camera.json")
@@ -142,7 +143,7 @@ def main():
         for l in label_objs_all[i]:
             curr_meshes.append(mesh_objs_dict[l])
         wMo_lst = wMo_lst_all[i]
-        dc_scene = DiffColScene(curr_meshes, path_stat_objs, wMs_lst)
+        dc_scene = DiffColScene(curr_meshes, static_meshes, wMs_lst, pre_loaded_meshes=True)
         X = optim(dc_scene, wMo_lst, col_req, col_req_diff, N_step, visualize)
         to_json = []
         for j in range(len(X)):

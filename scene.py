@@ -139,13 +139,16 @@ class SelectStrategyConfig:
 
 class DiffColScene:
     """
+    Class for handling collision detection, distance computation and derivatives.
+    
     Inputs:
     - obj_paths: list of paths to meshes
+    - stat_paths: list of paths to static meshes
+    - wMs_lst: list of poses of static meshes
     - obj_decomp_paths: list of paths to directories with decomposed meshes 
     (if you choose to use decomposition, provide the paths for same objects as in obj_path and in the same order)
-    - stat_paths: list of paths to static meshes
     - stat_decomp_paths: list of paths to directories with decomposed static meshes
-    - wMs_lst: list of poses of static meshes
+    - scale: float
 
     TODO: 
     - analytical shapes from hppfcl
@@ -153,7 +156,7 @@ class DiffColScene:
 
     """
     def __init__(self, obj_paths: List[str], stat_paths: List[str] = [], wMs_lst: List[pin.SE3] = [],
-                obj_decomp_paths: List[str] = [], stat_decomp_paths: List[str] = []) -> None:
+                obj_decomp_paths: List[str] = [], stat_decomp_paths: List[str] = [], scale: float = 1.0, pre_loaded_meshes: bool = False) -> None:
 
         assert len(stat_paths) == len(wMs_lst)
         self.wMs_lst = wMs_lst
@@ -168,28 +171,37 @@ class DiffColScene:
         self.statics_decomp = []
 
         self.mesh_loader = hppfcl.MeshLoader()
+        self.scale = scale
 
-        print("Loading meshes...")
-        for path in obj_paths:
-            self.shapes_convex.append(self.create_mesh(path))
+        if pre_loaded_meshes:
+            self.shapes_convex = obj_paths
+            self.statics_convex = stat_paths
+            self.shapes_decomp = obj_decomp_paths
+            self.statics_decomp = stat_decomp_paths
+        else:
+            print("Loading meshes...")
+            for path in obj_paths:
+                self.shapes_convex.append(self.create_mesh(path))
 
-        for path in obj_decomp_paths:
-            self.shapes_decomp.append(self.create_decomposed_mesh(path))
-        
-        for path in stat_paths:
-            self.statics_convex.append(self.create_mesh(path))
-        
-        for path in stat_decomp_paths:
-            self.statics_decomp.append(self.create_decomposed_mesh(path))
-        print("Meshes loaded.")
+            for path in obj_decomp_paths:
+                self.shapes_decomp.append(self.create_decomposed_mesh(path))
+            
+            for path in stat_paths:
+                self.statics_convex.append(self.create_mesh(path))
+            
+            for path in stat_decomp_paths:
+                self.statics_decomp.append(self.create_decomposed_mesh(path))
+            print("Meshes loaded.")
 
     def compute_diffcol(self, wMo_lst: List[pin.SE3], col_req, col_req_diff, diffcol=True):
         """
         Compute diffcol for all objects.
+
         Inputs:
         - wMo_lst: list of poses of objects
         - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
+
         Returns:
         - cost_c: float
         - grad: np.array of shape (6*N,)
@@ -224,10 +236,12 @@ class DiffColScene:
     def compute_diffcol_static(self, wMo_lst: List[pin.SE3], col_req, col_req_diff, diffcol=True):
         """
         Compute diffcol for all objects with static objects.
+
         Inputs:
         - wMo_lst: list of poses of objects
         - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
+
         Returns:
         - cost_c: float
         - grad: np.array of shape (6*N,)
@@ -242,26 +256,26 @@ class DiffColScene:
                 shape_convex, wMo = self.shapes_convex[i1], wMo_lst[i1]
                 static_convex, wMs = self.statics_convex[i2], self.wMs_lst[i2]
 
-                if len(self.shapes_decomp) > 0 and len(self.statics_decomp) > 0:
+                if len(self.shapes_decomp) > 0 and len(self.statics_decomp) > 0: # both shapes and statics are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], self.statics_decomp[i2]
                     max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                                                       static_convex, static_decomp, wMs, 
-                                                                                                       col_req, col_req_diff, diffcol)
-                elif len(self.shapes_decomp) > 0 and len(self.statics_decomp) == 0:
+                                                                                       static_convex, static_decomp, wMs, 
+                                                                                       col_req, col_req_diff, diffcol)
+                elif len(self.shapes_decomp) > 0 and len(self.statics_decomp) == 0: # only shapes are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], [self.statics_convex[i2]]
                     max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                                                       static_convex, static_decomp, wMs, 
-                                                                                                       col_req, col_req_diff, diffcol)
-                elif len(self.shapes_decomp) == 0 and len(self.statics_decomp) > 0:
+                                                                                       static_convex, static_decomp, wMs, 
+                                                                                       col_req, col_req_diff, diffcol)
+                elif len(self.shapes_decomp) == 0 and len(self.statics_decomp) > 0: # only statics are decomposed
                     shape_decomp, static_decomp = [self.shapes_convex[i1]], self.statics_decomp[i2]
                     max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                                                       static_convex, static_decomp, wMs, 
-                                                                                                       col_req, col_req_diff, diffcol)
-                else:
+                                                                                       static_convex, static_decomp, wMs, 
+                                                                                       col_req, col_req_diff, diffcol)
+                else: # both shapes and statics are convex
                     max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_convex(shape_convex, wMo,
-                                                                                                       static_convex, wMs,
-                                                                                                       col_req, col_req_diff, diffcol)
-                if max_coll_dist > 0:
+                                                                                       static_convex, wMs,
+                                                                                       col_req, col_req_diff, diffcol)
+                if max_coll_dist > 0: # if there is a collision between object and static object
                     cost_c += max_coll_dist
                     grad[6*i1:6*i1+6] += grad_1
                 self.col_res_pairs_stat[(i1, i2)] = col_res
@@ -271,11 +285,13 @@ class DiffColScene:
     def compute_diffcol_convex(self, convex_1, M1, convex_2, M2, col_req, col_req_diff, diffcol=True):
         """
         Compute diffcol using only convex hulls.
+
         Inputs:
         - convex_1, convex_2: hppfcl.Convex
         - M1, M2: pin.SE3
         - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
+
         Returns:
         - max_coll_dist: float
         - grad_1, grad_2: np.array of shape (6,)
@@ -305,12 +321,14 @@ class DiffColScene:
     def compute_diffcol_decomp(self, convex_1, decomp_1, M1, convex_2, decomp_2, M2, col_req, col_req_diff, diffcol=True):
         """
         Compute diffcol using both convex hulls and convex decomposed shapes.
+
         Inputs:
         - convex_1, convex_2: hppfcl.Convex
         - decomp_1, decomp_2: list of hppfcl.Convex
         - M1, M2: pin.SE3
         - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
+
         Returns:
         - max_coll_dist: float
         - grad_1, grad_2: np.array of shape (6,)
@@ -372,12 +390,14 @@ class DiffColScene:
     def create_mesh(self, obj_path: str):
         """
         Loads mesh and creates convex hull.
+        
         Inputs:
         - obj_path: str
+
         Returns:
         - hppfcl.Convex
         """
-        mesh: hppfcl.BVHModelBase = self.mesh_loader.load(obj_path, scale=np.array(3*[0.001]))
+        mesh: hppfcl.BVHModelBase = self.mesh_loader.load(obj_path, scale=np.array(3*[self.scale]))
         mesh.buildConvexHull(True, "Qt")
         return mesh.convex
 
@@ -385,15 +405,17 @@ class DiffColScene:
     def create_decomposed_mesh(self, dir_path: str):
         """
         Iterates through given directory with convex decompositions and creates a list of convex shapes.
+
         Inputs:
         - dir_path: str
+
         Returns:
         - list of hppfcl.Convex
         """
         meshes = []
         for path in Path(dir_path).iterdir():
             if path.suffix == ".ply" or path.suffix == ".obj":
-                mesh: hppfcl.BVHModelBase = self.mesh_loader.load(str(path), scale=np.array(3*[0.001]))
+                mesh: hppfcl.BVHModelBase = self.mesh_loader.load(str(path), scale=np.array(3*[self.scale]))
                 mesh.buildConvexHull(True, "Qt")
                 meshes.append(mesh.convex)
         return meshes

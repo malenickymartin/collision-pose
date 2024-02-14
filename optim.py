@@ -17,8 +17,10 @@ def res_grad_se3(M: pin.SE3, Mm: pin.SE3):
     """
     Mrel = Mm.inverse()*M
     res = pin.log(Mrel).vector
+    Q = np.eye(6) # TODO: diagonal weighting diag([a,a,b,c,c,c])
+    res_Q = Q @ res
     J = pin.Jlog6(Mrel)
-    return res, res @ J
+    return res, res_Q @ J
 
 
 def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3]):

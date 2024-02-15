@@ -12,6 +12,6 @@ for i in range(1, 22):
     mesh_parts = []
     for vs, fs in result:
         mesh_parts.append(trimesh.Trimesh(vs, fs))
-    (destination_path / f"{i}").mkdir(exist_ok=True)
+    (destination_path / f"{i}").mkdir(parents=True, exist_ok=True)
     for j, part in enumerate(mesh_parts):
-        part.export(destination_path / f"{i}" /f"obj_{i:06d}_{j:06d}.ply")
+        part.export(destination_path / f"{i}" /f"obj_{i:06d}_{j:06d}.obj")

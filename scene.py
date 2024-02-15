@@ -12,9 +12,12 @@ from pydiffcol.utils import (
     constructPolyhedralEllipsoid,
     constructDiamond, 
 )
-from pydiffcol.utils_render import draw_shape, draw_witness_points, RED, GREEN, BLUE
+from pydiffcol.utils_render import draw_shape, draw_witness_points
 
 from spatial import normalize_se3
+
+GREEN = np.array([110, 250, 90, 125]) / 255
+BLUE = np.array([90, 110, 250, 125]) / 255
 
 
 def create_shape(shape_type: str, num_subdiv=1, path_mesh=None):
@@ -375,9 +378,8 @@ class DiffColScene:
                             grad_1 += -col_res_diff.ddist_dM1
                             grad_2 += -col_res_diff.ddist_dM2
                             num_colls += 1
-                        if col_res.dist < 0:
-                            if max_coll_dist > col_res.dist:
-                                max_coll_dist = col_res.dist
+                        if col_res.dist < max_coll_dist:
+                            max_coll_dist = col_res.dist
 
         if num_colls > 0:
             grad_1 /= num_colls

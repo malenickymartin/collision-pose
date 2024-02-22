@@ -196,7 +196,9 @@ class DiffColScene:
                 self.statics_decomp.append(self.create_decomposed_mesh(path))
             print("Meshes loaded.")
 
-    def compute_diffcol(self, wMo_lst: List[pin.SE3], col_req, col_req_diff, diffcol=True):
+    def compute_diffcol(self, wMo_lst: List[pin.SE3], 
+                        col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
+                        diffcol: bool = True) -> Tuple[float, np.ndarray]:
         """
         Compute diffcol for all objects.
 
@@ -207,7 +209,7 @@ class DiffColScene:
 
         Returns:
         - cost_c: float
-        - grad: np.array of shape (6*N,)
+        - grad: np.ndarray of shape (6*N,)
         """
         N = len(wMo_lst)
         index_pairs = get_permutation_indices(N)
@@ -236,7 +238,7 @@ class DiffColScene:
         return cost_c, grad
 
 
-    def compute_diffcol_static(self, wMo_lst: List[pin.SE3], col_req, col_req_diff, diffcol=True):
+    def compute_diffcol_static(self, wMo_lst: List[pin.SE3], col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol=True):
         """
         Compute diffcol for all objects with static objects.
 
@@ -285,7 +287,10 @@ class DiffColScene:
 
         return cost_c, grad
     
-    def compute_diffcol_convex(self, convex_1, M1, convex_2, M2, col_req, col_req_diff, diffcol=True):
+    def compute_diffcol_convex(
+            self, convex_1: hppfcl.Convex, M1: pin.SE3, convex_2: hppfcl.Convex, M2: pin.SE3,
+            col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol=True
+            ) -> Tuple[float, np.ndarray, np.ndarray, pydiffcol.DistanceResult, pydiffcol.DerivativeResult]:
         """
         Compute diffcol using only convex hulls.
 
@@ -297,7 +302,7 @@ class DiffColScene:
 
         Returns:
         - max_coll_dist: float
-        - grad_1, grad_2: np.array of shape (6,)
+        - grad_1, grad_2: np.ndarray of shape (6,)
         - col_res, col_res_diff: pydiffcol.DistanceResult, pydiffcol.DerivativeResult
         """
         col_res = pydiffcol.DistanceResult()
@@ -321,7 +326,11 @@ class DiffColScene:
     
         return max_coll_dist, grad_1, grad_2, col_res, col_res_diff
 
-    def compute_diffcol_decomp(self, convex_1, decomp_1, M1, convex_2, decomp_2, M2, col_req, col_req_diff, diffcol=True):
+    def compute_diffcol_decomp(
+            self, convex_1: hppfcl.Convex, decomp_1: List[hppfcl.Convex], M1: pin.SE3,
+            convex_2: hppfcl.Convex, decomp_2: List[hppfcl.Convex], M2: List[pin.SE3],
+            col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol: bool = True
+            ) -> Tuple[float, np.ndarray, np.ndarray, pydiffcol.DistanceResult, pydiffcol.DerivativeResult]:
         """
         Compute diffcol using both convex hulls and convex decomposed shapes.
 

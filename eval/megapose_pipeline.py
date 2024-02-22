@@ -228,7 +228,7 @@ def run_inference(
     logger.info(f"Loading model {model_name}.")
     model_info = NAMED_MODELS[model_name]
     object_dataset = make_object_dataset(example_dir)
-    pose_estimator = load_named_model(model_name, object_dataset, bsz_images=64).to(device)
+    pose_estimator = load_named_model(model_name, object_dataset).to(device)
     logger.info(f"Running inference.")
 
 
@@ -265,7 +265,7 @@ if __name__ == "__main__":
     parser.add_argument("--vis-outputs", action="store_true", default=True)
     args = parser.parse_args()
 
-    data_dir = Path("/local2/homes/malenma3/object_detection/datasets") / args.example_name
+    data_dir = Path("/local2/homes/malenma3/collision-pose/eval/data") / args.example_name
     assert data_dir
 
     run_inference(data_dir, args.model)

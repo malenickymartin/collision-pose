@@ -15,7 +15,7 @@ from pydiffcol.utils import (
 from scene import DiffColScene, SelectStrategyConfig
 from run_optim import optim
 
-from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam
+from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam, load_meshes, load_csv
 
 
 def create_mesh(mesh_loader, obj_path: str):
@@ -32,29 +32,27 @@ def create_decomposed_mesh(mesh_loader, dir_path: str):
             meshes.append(mesh.convex)
     return meshes
 
-if __name__ == "__main__":
+def save_optimized_bproc():
 
-    visualize = False
-    N_step = 500
+    visualize = True
+    dataset_name = "ycbv_convex"
 
-    args = SelectStrategyConfig()
-    args.noise = 1e-2
-    args.num_samples = 100
+    args = SelectStrategyConfig(1e-2, 100)
     col_req, col_req_diff = select_strategy(args)
 
     path_stat_objs = ["eval/data/floor.ply"]
+    mesh_loader = hppfcl.MeshLoader()
 
     print("Loading decomposed meshes...")
-    mesh_loader = hppfcl.MeshLoader()
-    path_objs_all = Path("eval/data/ycbv_convex")
-    path_objs_decomposed = path_objs_all / "meshes_decomp"
+    dataset_path = Path("eval/data") / dataset_name
+    path_objs_decomposed = dataset_path / "meshes_decomp"
     mesh_objs_dict_decomposed = {}
     for mesh_dir_path in path_objs_decomposed.iterdir():
         mesh_label = int(mesh_dir_path.name)
         mesh_objs_dict_decomposed[mesh_label] = create_decomposed_mesh(mesh_loader, str(mesh_dir_path))
 
     print("Loading meshes...")
-    path_objs_convex = path_objs_all / "meshes"
+    path_objs_convex = dataset_path / "meshes"
     mesh_objs_dict = {}
     for mesh_dir_path in path_objs_convex.iterdir():
         mesh_label = int(mesh_dir_path.name)
@@ -62,8 +60,8 @@ if __name__ == "__main__":
         mesh_objs_dict[mesh_label] = create_mesh(mesh_loader, str(mesh_path))
     static_meshes = [create_mesh(mesh_loader, str(p)) for p in path_stat_objs]
     
-    path_wMo_all = Path("eval/data/ycbv_convex/happypose/outputs")
-    gt_cam_path = Path("eval/data/ycbv_convex/train_pbr/000000/scene_camera.json")
+    path_wMo_all = dataset_path / "happypose/outputs"
+    gt_cam_path = dataset_path / "train_pbr/000000/scene_camera.json"
     wMo_lst_all = []
     wMs_lst = []
     label_objs_all = []
@@ -87,7 +85,7 @@ if __name__ == "__main__":
         label_objs_all.append(label_objs)
         scene_idxs.append(scene_idx)
 
-    save_dir_path = Path("eval/data/ycbv_convex/happypose/outputs_coll")
+    save_dir_path = dataset_path / "happypose/outputs_coll"
     for i in tqdm(range(len(wMo_lst_all))):
         curr_meshes = []
         curr_meshes_decomp = []
@@ -96,7 +94,7 @@ if __name__ == "__main__":
             curr_meshes_decomp.append(mesh_objs_dict_decomposed[l])
         wMo_lst = wMo_lst_all[i]
         dc_scene = DiffColScene(curr_meshes, static_meshes, [wMs_lst[i]], curr_meshes_decomp, pre_loaded_meshes=True)
-        X = optim(dc_scene, wMo_lst, col_req, col_req_diff, N_step, "adam", visualize)
+        X = optim(dc_scene, wMo_lst, col_req, col_req_diff, visualize)
         to_json = []
         for j in range(len(X)):
             xyzquat = pin.SE3ToXYZQUAT(X[j])
@@ -104,3 +102,10 @@ if __name__ == "__main__":
             to_json.append(json_dict)
         save_data_path = save_dir_path / f"object_data_{scene_idxs[i]}.json"
         save_data_path.write_text(json.dumps(to_json))
+
+def save_optimized_bop():
+    # TODO this
+    pass
+
+if __name__ == "__main__":
+    save_optimized_bproc()

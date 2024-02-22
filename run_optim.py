@@ -1,11 +1,11 @@
 import time
 from copy import deepcopy
-from dataclasses import dataclass
 from tqdm import tqdm
 import numpy as np
 from numpy.linalg import norm
 import pinocchio as pin
 import matplotlib.pyplot as plt
+from typing import Union, List, Dict
 
 import pydiffcol
 from pydiffcol.utils import (
@@ -21,24 +21,47 @@ from optim import (
 from spatial import perturb_se3
 
 
-def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int = 100, method:str = "adam", visualize:bool = False):
+def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
+          col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
+          params: Union[Dict[str, Union[str,int,List]], None] = None, visualize: bool = False) -> List[pin.SE3]:
     """
     Optimize the poses of the objects in the scene to minimize the collision cost and the perception cost.
+
     Inputs:
     - dc_scene: the scene to optimize
     - wMo_lst_init: the initial poses of the objects
     - col_req: the collision request
     - col_req_diff: the collision request for the diff
-    - N_step: the number of optimization steps
-    - method: the optimization method to use, one of "GD", "MGD", "NGD", "adagrad", "rmsprop", "adam" # Ref: https://cs231n.github.io/neural-networks-3/#sgd
+    - params: the optimization parameters, a dictionary containing:
+        - N_step: the number of optimization steps, default 1000
+        - learning_rate: the learning rate, default 0.01
+        - step_lr_decay: the decay factor for the learning rate, default 0.5
+        - step_lr_freq: the frequency of the learning rate decay, default 100
+        - Q: the values of covariance for the perception cost, first value is for x and y axis, second is for z, third is for angles, default [0.01, 0.06, 0.26]
+        - method: the optimization method to use, one of "GD", "MGD", "NGD", "adagrad", "rmsprop", "adam" # Ref: https://cs231n.github.io/neural-networks-3/#sgd
+        - method_params: the parameters for the optimization method, e.g. mu for MGD, NGD, eps for adagrad, [decay, eps] for rmsprop, [beta1, beta2, eps] for adam
     - visualize: whether to visualize and log the optimization process
+
+    Returns:
+    - the optimized poses of the objects of type List[pin.SE3]
     """
+    # Params
+    if params is None:
+        params = {
+            "N_step": 1000,
+            "learning_rate": 0.01,
+            "step_lr_decay": 0.5,
+            "step_lr_freq": 100,
+            "Q": [0.01, 0.06, 0.26],
+            "method": "adam",
+            "method_params": [0.99, 0.999, 1e-8]
+        }
+
     # Logs
     if visualize:
         cost_c_lst, grad_c_norm = [], []
         cost_c_stat_lst, grad_c_stat_norm = [], []
         cost_pt_lst, cost_po_lst, grad_p_norm = [], [], []
-        cost_pt_gt_lst, cost_po_gt_lst = [], []
 
     X = deepcopy(wMo_lst_init)
     X_lst = []
@@ -46,22 +69,28 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
     N_SHAPES = len(dc_scene.shapes_convex)
 
     # All
-    learning_rate = 0.01
+    Q = params["Q"]
+    N_step = params["N_step"]
+    learning_rate = params["learning_rate"]
+    lr_decay = params["step_lr_decay"]
+    lr_freq = params["step_lr_freq"]
+    method = params["method"]
 
     # Momentum param MGD, NGD
-    mu = 0.90
+    if method in ['MGD', 'NGD']:
+        mu = params["method_params"] #0.90
 
     # adagrad
-    eps_adagrad = 1e-8
+    elif method == 'adagrad':
+        eps_adagrad = params["method_params"] #1e-8
 
     # RMSprop
-    decay_rmsprop = 0.99
-    eps_rmsprop = 1e-8
+    elif method == 'rmsprop':
+        decay_rmsprop, eps_rmsprop = params["method_params"] #[0.99, 1e-8]
 
     # adam
-    beta1_adam = 0.99
-    beta2_adam = 0.999
-    eps_adam = 1e-8
+    elif method == 'adam':
+        beta1_adam, beta2_adam, eps_adam = params["method_params"] #[0.99, 0.999, 1e-8]
 
     cache_ada = np.zeros(6*N_SHAPES)
     m_adam = np.zeros(6*N_SHAPES)
@@ -70,10 +99,8 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
     scale_grad_col = 0.2
     
     for i in tqdm(range(N_step)):
-        if i % 100 == 0: 
-            print(f'i/N_step: {i}/{N_step}') 
-            print('learning_rate: ', learning_rate)
-            learning_rate /= 2
+        if i % lr_freq == 0 and i != 0:
+            learning_rate *= lr_decay
 
         if method == 'NGD':
             # Evaluate gradient at a look-ahead state
@@ -87,7 +114,7 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
         cost_c = cost_c_obj + cost_c_stat
         grad_c = grad_c_obj + grad_c_stat
         # cost_c, grad_c = 0.0, np.zeros(dx.shape)
-        res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init)
+        res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, Q)
         # res_p, grad_p = np.zeros(dx.shape), np.zeros(dx.shape)
         grad = scale_grad_col*grad_c + grad_p
 
@@ -129,11 +156,6 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
             cost_pt_lst.append(cost_pt)
             cost_po_lst.append(cost_po)
             grad_p_norm.append(norm(grad_p))
-            res_p_gt, _ = perception_res_grad(X, wMo_lst_init)
-            cost_pt_gt, cost_po_gt = res2cost(res_p_gt[:3]), res2cost(res_p_gt[3:])
-            cost_pt_gt_lst, cost_po_gt_lst
-            cost_pt_gt_lst.append(cost_pt_gt)
-            cost_po_gt_lst.append(cost_po_gt)
 
     if visualize:
         steps = np.arange(len(cost_c_lst))
@@ -148,16 +170,12 @@ def optim(dc_scene:DiffColScene, wMo_lst_init, col_req, col_req_diff, N_step:int
         ax[1,1].set_title('grad norm collision static')
         fig.legend()
         fig, ax = plt.subplots(3)
-        ax[0].plot(steps, cost_pt_lst, label='meas')
-        ax[0].plot(steps, cost_pt_gt_lst, label='gt')
+        ax[0].plot(steps, cost_pt_lst)
         ax[0].set_ylabel('err_t [m]')
-        ax[2].set_title('cost translation')
-        ax[0].legend()
-        ax[1].plot(steps, cost_po_lst, label='meas')
-        ax[1].plot(steps, cost_po_gt_lst, label='gt')
+        ax[0].set_title('cost translation')
+        ax[1].plot(steps, cost_po_lst)
         ax[1].set_ylabel('err_o [rad]')
-        ax[2].set_title('cost orientation')
-        ax[1].legend()
+        ax[1].set_title('cost orientation')
         ax[2].plot(steps, grad_p_norm)
         ax[2].set_title('grad norm perception')
         plt.show()
@@ -223,4 +241,4 @@ if __name__ == "__main__":
     args.num_samples = 100
     col_req, col_req_diff = select_strategy(args)
 
-    optim(dc_scene, X_meas, col_req, col_req_diff, N_step=1000, method="adam", visualize=MESHCAT_VIS)
+    optim(dc_scene, X_meas, col_req, col_req_diff, visualize=MESHCAT_VIS)

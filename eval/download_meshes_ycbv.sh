@@ -1,4 +1,5 @@
-cd eval/data
+mkdir -p eval/data/ycbv
+cd eval/data/ycbv
 wget -O data.zip https://bop.felk.cvut.cz/media/data/bop_datasets/ycbv_models.zip
 unzip data.zip
 rm -rf data.zip models_eval models_fine

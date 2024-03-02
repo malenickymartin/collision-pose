@@ -1,4 +1,5 @@
 from eval_utils import *
+from typing import Union
 
 FLOOR_MESH_PATH = Path(os.path.realpath(__file__)).parent / "data" / "floor.ply"
 
@@ -130,7 +131,7 @@ def eval_bproc(path_mp_outputs: Path, path_bp_gt: Path, path_meshes: Path, sw_fl
 
 def eval_csv(path_scenes: Path, csv_names: list, path_csv: Path,
              path_meshes: Path, path_convex_meshes: Path,
-             sw_floor_coll: bool, sw_obj_coll: bool):
+             sw_floor_coll: bool, sw_obj_coll: bool, pre_loaded_floor: Union[None, str] = None):
 
     rigid_objects_decomp = load_multi_convex_meshes(path_convex_meshes)
     rigid_objects = load_meshes(path_meshes)
@@ -142,8 +143,12 @@ def eval_csv(path_scenes: Path, csv_names: list, path_csv: Path,
     floor_mesh = floor_hppfcl.convex
 
     # Load info
-                
-    floor_se3s = get_floor_se3s(path_scenes, rigid_objects, floor_mesh)
+
+    if pre_loaded_floor != None:  
+        with open(pre_loaded_floor, "r") as f:
+            floor_se3s = json.load(f)   
+    else:
+        floor_se3s = get_floor_se3s(path_scenes, rigid_objects, floor_mesh)
     
     for csv_name in csv_names:
         scenes = load_csv(path_csv / csv_name)
@@ -165,7 +170,11 @@ def eval_csv(path_scenes: Path, csv_names: list, path_csv: Path,
         for scene in tqdm(scenes):
             num_scenes += 1
             for im in tqdm(scenes[scene]):
-                se3_floor = floor_se3s[scene][im]
+                if pre_loaded_floor != None:
+                    se3_floor = floor_se3s[str(scene)][str(im)]
+                    se3_floor = None if se3_floor == None else pin.SE3(np.array(se3_floor["R"]), np.array(se3_floor["t"]))
+                else:
+                    se3_floor = floor_se3s[scene][im]
                 if se3_floor == None:
                     continue
                 num_images += 1
@@ -176,7 +185,7 @@ def eval_csv(path_scenes: Path, csv_names: list, path_csv: Path,
                     mesh_decomp_1 = rigid_objects_decomp[labels[i]]
                     se3_1 = get_se3_from_mp_csv(data, i)
                     # Collision with floor
-                    if sw_floor_coll:
+                    if sw_floor_coll and se3_floor != None:
                         if get_dist(mesh_1, floor_mesh, se3_1, se3_floor) < 0:
                             d = get_dist_decomp(mesh_decomp_1, [floor_mesh], se3_1, se3_floor)
                             if d < 0:
@@ -280,7 +289,7 @@ def eval_csv_floor_non_decomp():
             print(f"Number of collisions is {floor_colls}. That is average of {floor_colls/num_images} per image.")
 
 
-def eval_csv_position(path_scenes, csv_names, path_scv):
+def eval_csv_pose(path_scenes, csv_names, path_csv):
     
     for csv_name in csv_names:
         err_R = 0
@@ -289,7 +298,7 @@ def eval_csv_position(path_scenes, csv_names, path_scv):
         num_scenes = 0
         num_objs = 0
         num_images = 0
-        scenes = load_csv(path_scv / csv_name)
+        scenes = load_csv(path_csv / csv_name)
         for scene in scenes:
             num_scenes += 1
             scene_path = path_scenes / f"{scene:06d}"
@@ -303,19 +312,19 @@ def eval_csv_position(path_scenes, csv_names, path_scv):
                     if str(gt["obj_id"]) in preds["obj_id"]:
                         num_objs += 1
                         idx = preds["obj_id"].index(str(gt["obj_id"]))
-                        err_t += np.linalg.norm(np.array(gt["cam_t_m2c"])/1000 - preds["t"][idx])
+                        err_t += np.linalg.norm(np.array(gt["cam_t_m2c"]) - preds["t"][idx]*1000)
                         err_R += np.linalg.norm(pin.log3((np.reshape(gt["cam_R_m2c"], (3,3)).T @ preds["R"][idx])))
                     else:
                         missed += 1
         err_t /= num_objs
         err_R /= num_objs
         print()
-        print(f"__________{csv_name}____________")
+        print(f"__________ {csv_name} ____________")
         print(f"Total number of scenes is {num_scenes}, number of images is {num_images}.")
         print(f"Average number of objects per image is {num_objs/num_images}")
         print(f"Number of missed detections is {missed}")
-        print(f"Average translation error is {err_t}")
-        print(f"Average rotation error is {err_R}")
+        print(f"Average translation error is {err_t} mm")
+        print(f"Average rotation error is {err_R} rad")
 
 
 if __name__ == "__main__":
@@ -323,7 +332,7 @@ if __name__ == "__main__":
     if eval == 0:
         #EVAL COLLISIONS ON BLENDERPROC
         dataset_path = Path("eval/data/ycbv_convex_two")
-        path_meshes = Path("eval/data/meshes")
+        path_meshes = Path("eval/data/ycbv_convex/meshes")
         path_mp_outputs = Path("eval/data/ycbv_convex_two/happypose/outputs")
         path_bp_gt = Path("eval/data/ycbv_convex_two/train_pbr/000000")
         floor = True
@@ -339,15 +348,14 @@ if __name__ == "__main__":
                 "gt_coarse_ycbv-test.csv"]
         path_meshes = Path("eval/data/meshes")
         path_convex_meshes = Path("eval/data/meshes_convex_multi")
-        eval_csv(path_scenes, csv_names, path_csv, path_meshes, path_convex_meshes, True, True)
+        floor_se3_path = "eval/data/ycbv_bop_floor_poses_1mm_res.json"
+        eval_csv(path_scenes, csv_names, path_csv, path_meshes, path_convex_meshes, True, True, floor_se3_path)
     elif eval == 2:
         #EVAL POSE ERRORS ON BOP (MEDERICS MEGAPOSE INFERENCE OF BOP YCBV)
-        path_scenes = Path("eval/data/ycbv_test_dataset")
-        path_csv = Path("eval/data/ycbv_test_csv")
-        csv_names = ["gdrnppdet_refiner-final_ycbv-test.csv",
-                "gdrnppdet_coarse_ycbv-test.csv",
-                "gt_refiner-final_ycbv-test.csv",
-                "gt_coarse_ycbv-test.csv"]
-        eval_csv_position(path_scenes, csv_names, path_csv)
+        path_scenes = Path("eval/data/datasets/ycbv")
+        path_csv = Path("eval/data/poses_output/ycbv")
+        csv_names = [
+            "gt_refiner-final_ycbv-test.csv"]
+        eval_csv_pose(path_scenes, csv_names, path_csv)
     elif eval == 3:
         eval_csv_floor_non_decomp()

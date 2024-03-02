@@ -347,7 +347,7 @@ def fit_plane(X: np.ndarray, y: np.ndarray):
         ransac.inlier_mask_: boolean mask of inliers classified as True
     """
 
-    ransac = linear_model.RANSACRegressor(residual_threshold=10, min_samples=5, max_trials=10000, stop_probability=0.995)
+    ransac = linear_model.RANSACRegressor(residual_threshold=1, min_samples=5, max_trials=10000, stop_probability=0.995)
     ransac.fit(X, y)
     d,a,b = ransac.estimator_.intercept_, ransac.estimator_.coef_[0], ransac.estimator_.coef_[1]
     return a, b, d, ransac.inlier_mask_
@@ -466,7 +466,7 @@ def draw_pc(vis, depth, K, se3_floor):
             continue
         se3 = pin.SE3.Identity()
         se3.translation = Xy[i]
-        renderPoint(vis, Xy[i], f"point_{i}", color=np.array([144, 169, 183, 255]) / 255, radius_point=3e-3)
+        renderPoint(vis, Xy[i], f"point_{i}", color=np.array([144, 169, 183, 255]) / 255, radius_point=1e-2)
 
     loader = hppfcl.MeshLoader()
     path = str(FLOOR_MESH_PATH)
@@ -474,3 +474,31 @@ def draw_pc(vis, depth, K, se3_floor):
     mesh.buildConvexHull(True, "Qt")
     shape = mesh.convex
     draw_shape(vis, shape, "plane", se3_floor, np.array([170, 236, 149, 255]) / 255, render_faces=False)
+
+def draw_pc_and_objects():
+    data_path = Path("eval/data")
+    with open("eval/data/ycbv_bop_floor_poses_1mm_res.json", "r") as f:
+        floor_se3s = json.load(f)
+    rigid_objects = load_meshes(data_path / "meshes")
+    vis = create_visualizer()
+    for scene in floor_se3s:
+        with open(Path("/local2/homes/malenma3/collision-pose/eval/data/ycbv_test_dataset") / f"{int(scene):06d}" / "scene_gt.json", "r") as f:
+            gt = json.load(f)
+        for im in floor_se3s[scene]:
+            with open(Path("/local2/homes/malenma3/collision-pose/eval/data/ycbv_test_dataset") / f"{int(scene):06d}" / "scene_camera.json", "r") as f:
+                cam_json = json.load(f)
+                K = np.array(cam_json[im]["cam_K"]).reshape(3,3)
+            gt_poses = {}
+            for obj in gt[im]:
+                gt_poses[obj["obj_id"]] = pin.SE3(np.array(obj["cam_R_m2c"]).reshape(3,3), np.array(obj["cam_t_m2c"])/1000)
+            depth = 0.1*np.array(Image.open(Path("/local2/homes/malenma3/collision-pose/eval/data/ycbv_test_dataset/") / f"{int(scene):06d}" / "depth" / f"{int(im):06d}.png"))
+            se3_floor = floor_se3s[scene][im]
+            se3_floor = None if se3_floor is None else pin.SE3(np.array(se3_floor["R"]), np.array(se3_floor["t"]))
+            if se3_floor is not None:
+                draw_pc(vis, depth, K, se3_floor)
+                for label in gt_poses:
+                    draw_shape(vis, rigid_objects[str(label)], f"{label}", gt_poses[label], np.array([170, 236, 149, 125]) / 255, render_faces = False)
+                print()
+            else:
+                print("No floor")
+            input("Press enter to continue")

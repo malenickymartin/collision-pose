@@ -12,6 +12,7 @@ from pydiffcol.utils import (
     select_strategy
 )
 from pydiffcol.utils_render import create_visualizer
+import hppfcl
 
 from scene import DiffColScene, draw_scene, poses_equilateral, poses_tetraedron, read_poses_pickle, SelectStrategyConfig
 from optim import (
@@ -22,7 +23,7 @@ from spatial import perturb_se3
 
 
 def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
-          col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
+          col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
           params: Union[Dict[str, Union[str,int,List]], None] = None, visualize: bool = False) -> List[pin.SE3]:
     """
     Optimize the poses of the objects in the scene to minimize the collision cost and the perception cost.
@@ -45,16 +46,24 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     Returns:
     - the optimized poses of the objects of type List[pin.SE3]
     """
+    # Check if optimization is needed
+    cost_c_obj, _ = dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
+    cost_c_stat, _ = dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff)
+    if cost_c_obj + cost_c_stat < 1e-3:
+        print("No collision detected, no need to optimize")
+        return wMo_lst_init
+
     # Params
     if params is None:
         params = {
             "N_step": 1000,
+            "coll_grad_scale": 1,
             "learning_rate": 0.01,
             "step_lr_decay": 0.5,
-            "step_lr_freq": 100,
+            "step_lr_freq": 50,
             "Q": [0.01, 0.06, 0.26],
-            "method": "adam",
-            "method_params": [0.99, 0.999, 1e-8]
+            "method": "GD",
+            "method_params": None
         }
 
     # Logs
@@ -70,6 +79,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
 
     # All
     Q = params["Q"]
+    coll_grad_scale = params["coll_grad_scale"]
     N_step = params["N_step"]
     learning_rate = params["learning_rate"]
     lr_decay = params["step_lr_decay"]
@@ -96,7 +106,6 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     m_adam = np.zeros(6*N_SHAPES)
     v_adam = np.zeros(6*N_SHAPES)
     dx = np.zeros(6*N_SHAPES)
-    scale_grad_col = 0.2
     
     for i in tqdm(range(N_step)):
         if i % lr_freq == 0 and i != 0:
@@ -110,13 +119,17 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             X_eval = X
 
         cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff)
-        cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff)
+        if len(dc_scene.statics_convex) > 0:
+            cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff)
+        else:
+            cost_c_stat, grad_c_stat = 0.0, np.zeros(6*N_SHAPES)
         cost_c = cost_c_obj + cost_c_stat
         grad_c = grad_c_obj + grad_c_stat
         # cost_c, grad_c = 0.0, np.zeros(dx.shape)
         res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, Q)
         # res_p, grad_p = np.zeros(dx.shape), np.zeros(dx.shape)
-        grad = scale_grad_col*grad_c + grad_p
+        grad = coll_grad_scale*grad_c + grad_p
+        grad = np.clip(grad, -5, 5)
 
         if method == 'GD':
             dx = -learning_rate*grad
@@ -178,20 +191,23 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         ax[1].set_title('cost orientation')
         ax[2].plot(steps, grad_p_norm)
         ax[2].set_title('grad norm perception')
-        plt.show()
+        plt.show(block=False)
         print('Create vis')
         vis = create_visualizer()
-        cost_c, grad_c = dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
         input("Continue?")
         print('Init!')
+        dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
+        dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
         draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
         time.sleep(4)
         print('optimized!')
+        dc_scene.compute_diffcol(X_lst[-1], col_req, col_req_diff)
+        dc_scene.compute_diffcol_static(X_lst[-1], col_req, col_req_diff, diffcol=False)
         draw_scene(vis, dc_scene.shapes_convex, dc_scene.statics_convex, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat, render_faces=False)
         time.sleep(4)
         # Process
         print("Animation start!")
-        for Xtmp in X_lst:
+        for Xtmp in tqdm(X_lst):
             # Recompute collision between pairs for visualization (TODO: should be stored)
             dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
             dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)

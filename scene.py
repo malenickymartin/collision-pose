@@ -1,5 +1,5 @@
 import pickle
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Union
 import numpy as np
 import pinocchio as pin
 import meshcat
@@ -145,21 +145,26 @@ class DiffColScene:
     Class for handling collision detection, distance computation and derivatives.
     
     Inputs:
-    - obj_paths: list of paths to meshes
-    - stat_paths: list of paths to static meshes
-    - wMs_lst: list of poses of static meshes
-    - obj_decomp_paths: list of paths to directories with decomposed meshes 
-    (if you choose to use decomposition, provide the paths for same objects as in obj_path and in the same order)
-    - stat_decomp_paths: list of paths to directories with decomposed static meshes
-    - scale: float
+    - obj_paths: list of paths to object meshes or list of pre-loaded hppfcl.Convex
+    - stat_paths: list of paths to static object meshes or list of pre-loaded hppfcl.Convex
+    - wMs_lst: list of poses of static objects
+    - obj_decomp_paths: list of paths to directories with convex decompositions of objects or list of lists of pre-loaded hppfcl.Convex
+    - stat_decomp_paths: list of paths to directories with convex decompositions of static objects or list of lists of pre-loaded hppfcl.Convex
+    - scale: scale with which to load meshes
+    - pre_loaded_meshes: bool, if True, obj_paths, stat_paths, obj_decomp_paths, stat_decomp_paths are lists of pre-loaded hppfcl.Convex
+
 
     TODO: 
     - analytical shapes from hppfcl
     - broadphase 
 
     """
-    def __init__(self, obj_paths: List[str], stat_paths: List[str] = [], wMs_lst: List[pin.SE3] = [],
-                obj_decomp_paths: List[str] = [], stat_decomp_paths: List[str] = [], scale: float = 1.0, pre_loaded_meshes: bool = False) -> None:
+    def __init__(
+            self, obj_paths: List[Union[str, hppfcl.Convex]], stat_paths: List[Union[str, hppfcl.Convex]] = [],
+            wMs_lst: List[pin.SE3] = [], obj_decomp_paths: List[Union[str, List[hppfcl.Convex]]] = [],
+            stat_decomp_paths: List[Union[str, List[hppfcl.Convex]]] = [], scale: float = 1.0,
+            pre_loaded_meshes: bool = False
+            ) -> None:
 
         assert len(stat_paths) == len(wMs_lst)
         self.wMs_lst = wMs_lst
@@ -197,14 +202,14 @@ class DiffColScene:
             print("Meshes loaded.")
 
     def compute_diffcol(self, wMo_lst: List[pin.SE3], 
-                        col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
+                        col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
                         diffcol: bool = True) -> Tuple[float, np.ndarray]:
         """
         Compute diffcol for all objects.
 
         Inputs:
         - wMo_lst: list of poses of objects
-        - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
+        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
 
         Returns:
@@ -218,7 +223,7 @@ class DiffColScene:
 
         for i1, i2 in index_pairs:
             shape1, shape2 = self.shapes_convex[i1], self.shapes_convex[i2] 
-            M1, M2 = wMo_lst[i1], wMo_lst[i2]
+            M1, M2 = normalize_se3(wMo_lst[i1]), normalize_se3(wMo_lst[i2])
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
                 max_coll_dist, grad_1, grad_2, col_res, col_res_diff = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
@@ -238,13 +243,13 @@ class DiffColScene:
         return cost_c, grad
 
 
-    def compute_diffcol_static(self, wMo_lst: List[pin.SE3], col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol=True):
+    def compute_diffcol_static(self, wMo_lst: List[pin.SE3], col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol=True):
         """
         Compute diffcol for all objects with static objects.
 
         Inputs:
         - wMo_lst: list of poses of objects
-        - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
+        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
 
         Returns:
@@ -258,8 +263,8 @@ class DiffColScene:
 
         for i1 in range(N):
             for i2 in range(M):
-                shape_convex, wMo = self.shapes_convex[i1], wMo_lst[i1]
-                static_convex, wMs = self.statics_convex[i2], self.wMs_lst[i2]
+                shape_convex, wMo = self.shapes_convex[i1], normalize_se3(wMo_lst[i1])
+                static_convex, wMs = self.statics_convex[i2], normalize_se3(self.wMs_lst[i2])
 
                 if len(self.shapes_decomp) > 0 and len(self.statics_decomp) > 0: # both shapes and statics are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], self.statics_decomp[i2]
@@ -289,7 +294,7 @@ class DiffColScene:
     
     def compute_diffcol_convex(
             self, convex_1: hppfcl.Convex, M1: pin.SE3, convex_2: hppfcl.Convex, M2: pin.SE3,
-            col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol=True
+            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol=True
             ) -> Tuple[float, np.ndarray, np.ndarray, pydiffcol.DistanceResult, pydiffcol.DerivativeResult]:
         """
         Compute diffcol using only convex hulls.
@@ -297,7 +302,7 @@ class DiffColScene:
         Inputs:
         - convex_1, convex_2: hppfcl.Convex
         - M1, M2: pin.SE3
-        - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
+        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
 
         Returns:
@@ -329,7 +334,7 @@ class DiffColScene:
     def compute_diffcol_decomp(
             self, convex_1: hppfcl.Convex, decomp_1: List[hppfcl.Convex], M1: pin.SE3,
             convex_2: hppfcl.Convex, decomp_2: List[hppfcl.Convex], M2: List[pin.SE3],
-            col_req: pydiffcol.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol: bool = True
+            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol: bool = True
             ) -> Tuple[float, np.ndarray, np.ndarray, pydiffcol.DistanceResult, pydiffcol.DerivativeResult]:
         """
         Compute diffcol using both convex hulls and convex decomposed shapes.
@@ -338,7 +343,7 @@ class DiffColScene:
         - convex_1, convex_2: hppfcl.Convex
         - decomp_1, decomp_2: list of hppfcl.Convex
         - M1, M2: pin.SE3
-        - col_req, col_req_diff: pydiffcol.DistanceRequest, pydiffcol.DerivativeRequest
+        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
         - diffcol: bool
 
         Returns:

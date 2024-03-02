@@ -356,7 +356,7 @@ class MegaposePredictor:
 
 
 def example():
-    data_dir = Path("/local2/homes/malenma3/collision-pose/eval/data") / "ycbv_convex_one"
+    data_dir = Path("/local2/homes/malenma3/collision-pose/eval/data/datasets") / "ycbv_convex_one"
 
     # MEGAPOSE CLASS
     meshes_dir = data_dir / "meshes"

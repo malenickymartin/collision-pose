@@ -19,8 +19,8 @@ def change_Q_frame(Q: np.ndarray, M: pin.SE3):
     cov_trans_o = rot @ cov_trans_c @ rot.T  # cov[AZ] = A cov[Z] A^T
 
     cov_o = np.zeros((6, 6))
-    cov_o[:3, :3] = np.diag([var_angle] * 3)
-    cov_o[3:6, 3:6] = cov_trans_o
+    cov_o[:3, :3] = cov_trans_o
+    cov_o[3:6, 3:6] = np.diag([var_angle] * 3)
 
     return cov_o
 

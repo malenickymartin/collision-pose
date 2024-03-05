@@ -1,6 +1,8 @@
 from typing import List, Dict
 import numpy as np
+from numpy.linalg import norm
 import pinocchio as pin
+import copy
 
 
 def change_Q_frame(Q: np.ndarray, M: pin.SE3):
@@ -70,8 +72,29 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q: np.ndarr
     
     return res, grad
 
+def clip_grad(grad, thr_grad_t=500, thr_grad_R=500):
+    """
+    Clip the gradient to avoid large steps.
+    """
+    grad = copy.deepcopy(grad) # copy the gradient to avoid modifying the original
+    grad = grad.reshape((-1,2,3)) # 2x3 matrix for each pose
+    grad_norm = norm(grad, axis=-1) # norm of each 2x3 matrix
+    mask = grad_norm > np.array([thr_grad_t, thr_grad_R]) # mask for large gradients
+    if np.any(mask): # if there are large gradients
+        with np.errstate(divide='ignore', invalid='ignore'): # ignore division by zero
+            grad_normed = grad/grad_norm.reshape(-1,2,1) # normalize gradients
+        thrs = np.array([thr_grad_t, thr_grad_R]).reshape(1,2,1) # thresholds for large gradients
+        grad[mask] = (thrs*grad_normed)[mask] # clip large gradients
+    return grad.reshape(-1) # return clipped gradients
+
 
 def rplus_se3(M, dm):
+    """
+    Right-plus operation for SE3.
+
+    M: SE3 object
+    dm: se3 tangent space "delta"
+    """
     return M*pin.exp(dm)
 
 

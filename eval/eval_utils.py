@@ -12,7 +12,7 @@ import pydiffcol
 from pathlib import Path
 import hppfcl
 from pydiffcol.utils import add_arguments_to_parser, select_strategy, select_targets, bring_shapes_to_dist
-from pydiffcol.utils_render import create_visualizer, draw_scene, renderPoint, draw_shape
+from pydiffcol.utils_render import create_visualizer, draw_scene, renderPoint, draw_shape, meshcat_material, get_transform
 
 FLOOR_MESH_PATH = Path(os.path.realpath(__file__)).parent / "data" / "floor.ply"
 
@@ -238,13 +238,14 @@ def load_csv(mp_pred_path):
     return scenes
 
 
-def load_meshes(dataset_path, mesh_units = 0.001):
+def load_meshes(dataset_path, mesh_units = 0.001, convex:bool = True):
     """
     Creates a dataset of rigid objects.
     Inputs:
         dataset_path: path to the directory with meshes (pathlib.Path), each mesh should be in its own directory (label of the object will be the directory name),
                       the directory should contain the mesh and texture 
         mesh_units: scale which will convert the units of the loaded mesh to meters (float)
+        convex: boolean indicating whether the convex hull of the mesh should be loaded
     Returns:
         rigid_objects: dict where keys are labels of meshes and values are convex hulls of the meshes
     """
@@ -262,8 +263,11 @@ def load_meshes(dataset_path, mesh_units = 0.001):
                 mesh_path = fn
         assert mesh_path, f"couldnt find a obj or ply mesh for {label}"
         mesh: hppfcl.BVHModelBase = loader.load(str(mesh_path), scale=np.array([mesh_units]*3))
-        mesh.buildConvexHull(True, "Qt")
-        shape = mesh.convex
+        if convex:
+            mesh.buildConvexHull(True, "Qt")
+            shape = mesh.convex
+        else:
+            shape = pin.visualize.meshcat_visualizer.loadMesh(mesh)
         rigid_objects[label] = shape
         print(f"Model {object_dir.name} loaded.")
     return rigid_objects
@@ -296,6 +300,19 @@ def load_multi_convex_meshes(dataset_path, mesh_units = 0.001):
         rigid_objects[label] = new_mesh
     return rigid_objects
 
+def draw_shape(vis, mesh, name, M, color):
+    """
+    Draws the shape in the visualizer.
+    Inputs:
+        vis: meshcat visualizer
+        mesh: meshcat object
+        name: name of the object
+        M: pose of the object (pinocchio.SE3)
+        color: color of the object
+    """
+    vis[name].set_object(mesh, meshcat_material(*color))
+    T = get_transform(M)
+    vis[name].set_transform(T)
 
 def img_2_world(u, K) -> np.ndarray:
     """

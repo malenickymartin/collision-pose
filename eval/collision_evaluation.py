@@ -340,15 +340,15 @@ if __name__ == "__main__":
         eval_bproc(path_mp_outputs, path_bp_gt, path_meshes, floor, vis)
     elif eval == 1:
         #EVAL COLLISIONS ON BOP (MEDERICS MEGAPOSE INFERENCE OF BOP YCBV)
-        path_scenes = Path("eval/data/ycbv_test_dataset")
-        path_csv = Path("eval/data/ycbv_test_csv")
+        path_scenes = Path("eval/data/datasets/ycbv")
+        path_csv = Path("eval/data/poses_output/ycbv")
         csv_names = ["gdrnppdet_refiner-final_ycbv-test.csv",
                 "gdrnppdet_coarse_ycbv-test.csv",
                 "gt_refiner-final_ycbv-test.csv",
                 "gt_coarse_ycbv-test.csv"]
-        path_meshes = Path("eval/data/meshes")
-        path_convex_meshes = Path("eval/data/meshes_convex_multi")
-        floor_se3_path = "eval/data/ycbv_bop_floor_poses_1mm_res.json"
+        path_meshes = Path("eval/data/meshes/ycbv")
+        path_convex_meshes = Path("eval/data/meshes_decomp/ycbv")
+        floor_se3_path = "eval/data/floor_poses/ycbv_bop_floor_poses_1mm_res.json"
         eval_csv(path_scenes, csv_names, path_csv, path_meshes, path_convex_meshes, True, True, floor_se3_path)
     elif eval == 2:
         #EVAL POSE ERRORS ON BOP (MEDERICS MEGAPOSE INFERENCE OF BOP YCBV)

@@ -12,9 +12,9 @@ from pydiffcol.utils import (
     constructPolyhedralEllipsoid,
     constructDiamond, 
 )
-from pydiffcol.utils_render import draw_shape, draw_witness_points
 
 from spatial import normalize_se3
+from eval.eval_utils import draw_shape
 
 GREEN = np.array([110, 250, 90, 125]) / 255
 BLUE = np.array([90, 110, 250, 125]) / 255
@@ -54,21 +54,18 @@ def draw_scene(vis: meshcat.Visualizer,
                wMo_lst: List[pin.SE3],
                wMs_lst: List[pin.SE3],
                col_res_pairs: Dict[Tuple[int,int], pydiffcol.DistanceResult],
-               col_res_pairs_stat: Dict[Tuple[int,int], pydiffcol.DistanceResult],
-               render_faces: bool = False,
-               radius_points = 3e-3):
+               col_res_pairs_stat: Dict[Tuple[int,int], pydiffcol.DistanceResult]
+               ):
     
     in_collision_obj = {i:False for i in range(len(shape_lst))}
-    for (id1, id2), col_res in col_res_pairs.items():
-        col = col_res.dist < 0.0
+    for (id1, id2), col_dist in col_res_pairs.items():
+        col = col_dist > 0.0
         in_collision_obj[id1] = in_collision_obj[id1] or col
         in_collision_obj[id2] = in_collision_obj[id2] or col
 
-        # M1, M2 = wMo_lst[id1], wMo_lst[id2]
-        # draw_witness_points(vis, M1 * col_res.w1, M2 * col_res.w2, radius_points=radius_points)
     in_collision_stat = {}
-    for (id_obj, id_stat), col_res in col_res_pairs_stat.items():
-        col = col_res.dist < 0.0
+    for (id_obj, id_stat), col_dist in col_res_pairs_stat.items():
+        col = col_dist > 0.0
         if id_stat not in in_collision_stat:
             in_collision_stat[id_stat] = col
 
@@ -77,11 +74,10 @@ def draw_scene(vis: meshcat.Visualizer,
 
     for i, (shape, M) in enumerate(zip(shape_lst, wMo_lst)):
         c = BLUE if in_collision_obj[i] else GREEN
-        # TODO: bottlebeck, might be possible to speed up by calling once pydiffcol.utils_render.loadCVX 
-        draw_shape(vis, shape, f"shape{i}", M, color=c, render_faces=render_faces)
+        draw_shape(vis, shape, f"shape{i}", M, color=c)
     for i, (shape, M) in enumerate(zip(stat_shape_lst, wMs_lst)):
         c = BLUE if in_collision_stat[i] else GREEN
-        draw_shape(vis, shape, f"stat_shape{i}", M, color=c, render_faces=render_faces)
+        draw_shape(vis, shape, f"stat_shape{i}", M, color=c)
 
 
 def get_permutation_indices(N):
@@ -226,19 +222,18 @@ class DiffColScene:
             M1, M2 = normalize_se3(wMo_lst[i1]), normalize_se3(wMo_lst[i2])
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
-                max_coll_dist, grad_1, grad_2, col_res, col_res_diff = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
+                max_coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
                                                                                                    shape2, shape2_decomp, M2, 
                                                                                                    col_req, col_req_diff, diffcol)
             else:
-                max_coll_dist, grad_1, grad_2, col_res, col_res_diff = self.compute_diffcol_convex(shape1, M1, shape2, M2, col_req, col_req_diff, diffcol)
+                max_coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1, shape2, M2, col_req, col_req_diff, diffcol)
                 
             if max_coll_dist > 0:
                 cost_c += max_coll_dist
                 grad[6*i1:6*i1+6] += grad_1
                 grad[6*i2:6*i2+6] += grad_2
 
-            self.col_res_pairs[(i1, i2)] = col_res
-            self.col_res_diff_pairs[(i1, i2)] = col_res_diff
+            self.col_res_pairs[(i1, i2)] = max_coll_dist
 
         return cost_c, grad
 
@@ -268,27 +263,27 @@ class DiffColScene:
 
                 if len(self.shapes_decomp) > 0 and len(self.statics_decomp) > 0: # both shapes and statics are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], self.statics_decomp[i2]
-                    max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
+                    max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
                                                                                        static_convex, static_decomp, wMs, 
                                                                                        col_req, col_req_diff, diffcol)
                 elif len(self.shapes_decomp) > 0 and len(self.statics_decomp) == 0: # only shapes are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], [self.statics_convex[i2]]
-                    max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
+                    max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
                                                                                        static_convex, static_decomp, wMs, 
                                                                                        col_req, col_req_diff, diffcol)
                 elif len(self.shapes_decomp) == 0 and len(self.statics_decomp) > 0: # only statics are decomposed
                     shape_decomp, static_decomp = [self.shapes_convex[i1]], self.statics_decomp[i2]
-                    max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
+                    max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
                                                                                        static_convex, static_decomp, wMs, 
                                                                                        col_req, col_req_diff, diffcol)
                 else: # both shapes and statics are convex
-                    max_coll_dist, grad_1, _, col_res, _ = self.compute_diffcol_convex(shape_convex, wMo,
+                    max_coll_dist, grad_1, _ = self.compute_diffcol_convex(shape_convex, wMo,
                                                                                        static_convex, wMs,
                                                                                        col_req, col_req_diff, diffcol)
                 if max_coll_dist > 0: # if there is a collision between object and static object
                     cost_c += max_coll_dist
                     grad[6*i1:6*i1+6] += grad_1
-                self.col_res_pairs_stat[(i1, i2)] = col_res
+                self.col_res_pairs_stat[(i1, i2)] = max_coll_dist
 
         return cost_c, grad
     
@@ -308,7 +303,6 @@ class DiffColScene:
         Returns:
         - max_coll_dist: float
         - grad_1, grad_2: np.ndarray of shape (6,)
-        - col_res, col_res_diff: pydiffcol.DistanceResult, pydiffcol.DerivativeResult
         """
         col_res = pydiffcol.DistanceResult()
         col_res_diff = pydiffcol.DerivativeResult()
@@ -320,7 +314,7 @@ class DiffColScene:
         _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
         if col_res.dist >= 0:
             # no collision between convex hulls
-            return max_coll_dist, grad_1, grad_2, col_res, col_res_diff
+            return max_coll_dist, grad_1, grad_2
         
         if diffcol:
             pydiffcol.distance_derivatives(convex_1, M1, convex_2, M2, col_req, col_res, col_req_diff, col_res_diff)
@@ -329,7 +323,7 @@ class DiffColScene:
             grad_2 = -col_res_diff.ddist_dM2
         max_coll_dist = -col_res.dist
     
-        return max_coll_dist, grad_1, grad_2, col_res, col_res_diff
+        return max_coll_dist, grad_1, grad_2
 
     def compute_diffcol_decomp(
             self, convex_1: hppfcl.Convex, decomp_1: List[hppfcl.Convex], M1: pin.SE3,
@@ -349,7 +343,6 @@ class DiffColScene:
         Returns:
         - max_coll_dist: float
         - grad_1, grad_2: np.array of shape (6,)
-        - col_res, col_res_diff: pydiffcol.DistanceResult, pydiffcol.DerivativeResult
         """
         col_res = pydiffcol.DistanceResult()
         col_res_diff = pydiffcol.DerivativeResult()
@@ -361,7 +354,7 @@ class DiffColScene:
         _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
         if col_res.dist >= 0:
             # no collision between convex hulls
-            return max_coll_dist, grad_1, grad_2, col_res, col_res_diff
+            return max_coll_dist, grad_1, grad_2
         
         #check which parts of decomp_1 are in collision with convex_2
         decomp_1_in_coll = []
@@ -400,7 +393,7 @@ class DiffColScene:
             grad_2 /= num_colls
         max_coll_dist = -max_coll_dist
     
-        return max_coll_dist, grad_1, grad_2, col_res, col_res_diff
+        return max_coll_dist, grad_1, grad_2
 
 
     def create_mesh(self, obj_path: str):

@@ -18,7 +18,7 @@ from scene import DiffColScene, SelectStrategyConfig
 from run_optim import optim
 from config import MESHES_PATH, MESHES_DECOMP_PATH, FLOOR_MESH_PATH, DATASETS_PATH, POSES_OUTPUT_PATH, FLOOR_POSES_PATH
 
-from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam, load_meshes, load_multi_convex_meshes, load_csv, get_floor_se3s
+from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam, load_meshes, load_multi_convex_meshes, load_csv
 
 
 def create_mesh(mesh_loader, obj_path: str):
@@ -158,6 +158,8 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                        params:dict = None, vis:bool = False):
     rigid_objects = load_meshes(MESHES_PATH / dataset_name)
     rigid_objects_decomp = load_multi_convex_meshes(MESHES_DECOMP_PATH / dataset_name)
+    if vis:
+        rigid_objects_vis = load_meshes(MESHES_PATH / dataset_name, convex=False)
     scenes = load_csv(POSES_OUTPUT_PATH / dataset_name / input_csv_name)
     if use_floor != None:
         floor_mesh, floor_se3s = load_static(use_floor)
@@ -172,6 +174,10 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
             curr_labels = []
             curr_meshes = []
             curr_meshes_decomp = []
+            if vis:
+                curr_meshes_vis = []
+            else:
+                curr_meshes_vis = None
             wMo_lst = []
             # Load info about each object in the scene
             for label, R_o, t_o in zip(scenes[scene][im]["obj_id"], scenes[scene][im]["R"], scenes[scene][im]["t"]):
@@ -180,6 +186,8 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                 wMo = pin.SE3(R_o, t_o)
                 curr_labels.append(label)
                 curr_meshes.append(rigid_objects[label])
+                if vis:
+                    curr_meshes_vis.append(rigid_objects_vis[label])
                 curr_meshes_decomp.append(rigid_objects_decomp[label])
                 wMo_lst.append(wMo)
             if use_floor:
@@ -189,7 +197,7 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
             else:
                 dc_scene = DiffColScene(curr_meshes, [], [], curr_meshes_decomp, pre_loaded_meshes=True)
             start_time = time.time()
-            X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, vis)
+            X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis)
             optim_time = (time.time() - start_time)
             for i in range(len(X)):
                 # One CSV row

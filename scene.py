@@ -14,10 +14,7 @@ from pydiffcol.utils import (
 )
 
 from spatial import normalize_se3
-from eval.eval_utils import draw_shape
-
-GREEN = np.array([110, 250, 90, 125]) / 255
-BLUE = np.array([90, 110, 250, 125]) / 255
+from eval.eval_utils import draw_shape, BLUE, GREEN
 
 
 def create_shape(shape_type: str, num_subdiv=1, path_mesh=None):
@@ -223,8 +220,8 @@ class DiffColScene:
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
                 max_coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
-                                                                                                   shape2, shape2_decomp, M2, 
-                                                                                                   col_req, col_req_diff, diffcol)
+                                                                            shape2, shape2_decomp, M2, 
+                                                                            col_req, col_req_diff, diffcol)
             else:
                 max_coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1, shape2, M2, col_req, col_req_diff, diffcol)
                 
@@ -264,22 +261,22 @@ class DiffColScene:
                 if len(self.shapes_decomp) > 0 and len(self.statics_decomp) > 0: # both shapes and statics are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], self.statics_decomp[i2]
                     max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                                       static_convex, static_decomp, wMs, 
-                                                                                       col_req, col_req_diff, diffcol)
+                                                                           static_convex, static_decomp, wMs, 
+                                                                           col_req, col_req_diff, diffcol)
                 elif len(self.shapes_decomp) > 0 and len(self.statics_decomp) == 0: # only shapes are decomposed
                     shape_decomp, static_decomp = self.shapes_decomp[i1], [self.statics_convex[i2]]
                     max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                                       static_convex, static_decomp, wMs, 
-                                                                                       col_req, col_req_diff, diffcol)
+                                                                           static_convex, static_decomp, wMs, 
+                                                                           col_req, col_req_diff, diffcol)
                 elif len(self.shapes_decomp) == 0 and len(self.statics_decomp) > 0: # only statics are decomposed
                     shape_decomp, static_decomp = [self.shapes_convex[i1]], self.statics_decomp[i2]
                     max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                                       static_convex, static_decomp, wMs, 
-                                                                                       col_req, col_req_diff, diffcol)
+                                                                           static_convex, static_decomp, wMs, 
+                                                                           col_req, col_req_diff, diffcol)
                 else: # both shapes and statics are convex
                     max_coll_dist, grad_1, _ = self.compute_diffcol_convex(shape_convex, wMo,
-                                                                                       static_convex, wMs,
-                                                                                       col_req, col_req_diff, diffcol)
+                                                                           static_convex, wMs,
+                                                                           col_req, col_req_diff, diffcol)
                 if max_coll_dist > 0: # if there is a collision between object and static object
                     cost_c += max_coll_dist
                     grad[6*i1:6*i1+6] += grad_1
@@ -356,7 +353,7 @@ class DiffColScene:
             # no collision between convex hulls
             return max_coll_dist, grad_1, grad_2
         
-        #check which parts of decomp_1 are in collision with convex_2
+        # check which parts of decomp_1 are in collision with convex_2
         decomp_1_in_coll = []
         for part_1 in decomp_1:
             _ = pydiffcol.distance(part_1, M1, convex_2, M2, col_req, col_res)
@@ -381,7 +378,7 @@ class DiffColScene:
                     if decomp_2_in_coll[j]:
                         _ = pydiffcol.distance(part_1, M1, part_2, M2, col_req, col_res)
                         if col_res.dist < 0 and diffcol:
-                            pydiffcol.distance_derivatives(convex_1, M1, part_2, M2, col_req, col_res, col_req_diff, col_res_diff)
+                            pydiffcol.distance_derivatives(part_1, M1, part_2, M2, col_req, col_res, col_req_diff, col_res_diff)
                             grad_1 += -col_res_diff.ddist_dM1
                             grad_2 += -col_res_diff.ddist_dM2
                             num_colls += 1

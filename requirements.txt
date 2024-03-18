@@ -2,5 +2,5 @@ blenderproc
 pin
 numpy
 matplotlib
-pyvhacd
-pyvista
+trimesh
+coacd

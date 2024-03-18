@@ -356,18 +356,18 @@ class MegaposePredictor:
 
 
 def example():
-    data_dir = Path("/local2/homes/malenma3/collision-pose/eval/data/datasets") / "ycbv_convex_one"
+    data_dir = Path("eval/data/")
 
     # MEGAPOSE CLASS
-    meshes_dir = data_dir / "meshes"
+    meshes_dir = data_dir / "meshes/hope"
     camera_data = {
-        "K": [[647.3, 0.0, 320.0], [0.0, 647.3, 240.0], [0.0, 0.0, 1.0]],
-        "resolution": [480, 640]
+        "K": [[1390.53, 0.0, 964.957], [0.0, 1386.99, 522.586], [0.0, 0.0, 1.0]],
+        "resolution": [1080, 1920]
     }
     megapose = MegaposePredictor(meshes_dir, "megapose-1.0-RGB", camera_data)
     # MEGAPOSE INFERENCE
-    rgb = np.array(Image.open(data_dir / f"train_pbr/000000/rgb/000000.jpg"), dtype=np.uint8)
-    detections = [{"bbox_modal": [234, 157, 234+171, 157+164], "visib_fract": 1.0, "label": "1"}]
+    rgb = np.array(Image.open(data_dir / f"datasets/hope/000001/rgb/000000.png"), dtype=np.uint8)
+    detections = [{"bbox_modal": [728, 819, 728+231, 819+260], "visib_fract": 1.0, "label": "16"}]
     save_dir = data_dir / "test_output"
     poses = megapose.run_megapose_inference(rgb, detections, save_dir=save_dir)
     # DIFFCOL CLASS

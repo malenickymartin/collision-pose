@@ -42,7 +42,10 @@ def res_grad_se3(M: pin.SE3, Mm: pin.SE3, Q: np.ndarray):
     """
     Mrel = Mm.inverse()*M
     res = pin.log(Mrel).vector
-    Q_obj = change_Q_frame(Q, Mm)
+    if Mm.translation[0] < 1e-3 and Mm.translation[1] < 1e-3: # object is in front of the camera, change of frame is not needed
+        Q_obj = np.diag([Q[0], Q[0], Q[1], Q[2], Q[2], Q[2]])
+    else:
+        Q_obj = change_Q_frame(Q, Mm)
     Q_inv = np.linalg.inv(Q_obj)
     Q_sqrt = np.linalg.cholesky(Q_inv)
     res = Q_sqrt @ res
@@ -72,7 +75,7 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q: np.ndarr
     
     return res, grad
 
-def clip_grad(grad, thr_grad_t=500, thr_grad_R=500):
+def clip_grad(grad, thr_grad_t=100, thr_grad_R=100):
     """
     Clip the gradient to avoid large steps.
     """

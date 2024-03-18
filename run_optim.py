@@ -14,7 +14,7 @@ from pydiffcol.utils import (
 from pydiffcol.utils_render import create_visualizer
 import hppfcl
 
-from scene import DiffColScene, draw_scene, poses_equilateral, poses_tetraedron, read_poses_pickle, SelectStrategyConfig
+from scene import DiffColScene, draw_scene, read_poses_pickle, SelectStrategyConfig
 from optim import (
     perception_res_grad,
     update_est,
@@ -25,7 +25,8 @@ from spatial import perturb_se3
 
 def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
           col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-          params: Union[Dict[str, Union[str,int,List]], None] = None, vis_meshes: Union[List, None] = None) -> List[pin.SE3]:
+          params: Union[Dict[str, Union[str,int,List]], None] = None,
+          vis_meshes: Union[List, None] = None, vis_meshes_stat: Union[List, None] = None) -> List[pin.SE3]:
     """
     Optimize the poses of the objects in the scene to minimize the collision cost and the perception cost.
 
@@ -127,7 +128,8 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             cost_c_stat, grad_c_stat = 0.0, np.zeros(6*N_SHAPES)
         res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, Q)
 
-        grad_c_obj, grad_c_stat = clip_grad(grad_c_obj), clip_grad(grad_c_stat)
+        grad_c_obj = clip_grad(grad_c_obj)
+        grad_c_stat = clip_grad(grad_c_stat)
         grad_c = grad_c_obj + grad_c_stat
         grad = coll_grad_scale*grad_c + grad_p
 
@@ -148,14 +150,12 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         else:
             raise ValueError(f"Unknown method {method}")
 
-        if visualize:
-            X_lst.append(deepcopy(X))
-
         # state update
         X = update_est(X, dx)
 
         # Logs
         if visualize:
+            X_lst.append(deepcopy(X))
             cost_c_lst.append(cost_c_obj)
             cost_c_stat_lst.append(cost_c_stat)
             grad_c_norm.append(norm(grad_c_obj))
@@ -191,28 +191,28 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         ax[2].set_title('grad norm perception')
         plt.show(block=False)
         print('Create vis')
-        vis = create_visualizer()
+        vis = create_visualizer(grid=True, axes=True)
         input("Continue?")
         print('Init!')
         dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
         dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
-        draw_scene(vis, vis_meshes, dc_scene.statics_convex, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
+        draw_scene(vis, vis_meshes, vis_meshes_stat, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
         time.sleep(4)
         print('optimized!')
         dc_scene.compute_diffcol(X_lst[-1], col_req, col_req_diff)
         dc_scene.compute_diffcol_static(X_lst[-1], col_req, col_req_diff, diffcol=False)
-        draw_scene(vis, vis_meshes, dc_scene.statics_convex, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
+        draw_scene(vis, vis_meshes, vis_meshes_stat, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
         time.sleep(4)
         # Process
         print("Animation start!")
         for i, Xtmp in enumerate(tqdm(X_lst)):
-            if i % 2 != 0:
+            if i % 10 != 0:
                 continue
             # Recompute collision between pairs for visualization (TODO: should be stored)
             dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
             dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
-            draw_scene(vis, vis_meshes, dc_scene.statics_convex, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
-            time.sleep(0.1)
+            draw_scene(vis, vis_meshes, vis_meshes_stat, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
+            time.sleep(0.5)
         print("Animation done!")
 
     return X

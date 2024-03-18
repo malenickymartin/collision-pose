@@ -7,10 +7,11 @@ dataset_name = input("Enter the dataset name: ")
 source_path = MESHES_PATH / dataset_name
 destination_path = MESHES_DECOMP_PATH / dataset_name
 for i in range(1, len(list(source_path.iterdir())) + 1):
+    i = 3
     input_file = str(source_path / f"{i}/obj_{i:06d}.ply")
     mesh = trimesh.load(input_file, force="mesh")
     mesh = coacd.Mesh(mesh.vertices, mesh.faces)
-    result = coacd.run_coacd(mesh) # a list of convex hulls.
+    result = coacd.run_coacd(mesh, preprocess_resolution=75, max_convex_hull=64) # a list of convex hulls.
     mesh_parts = []
     for vs, fs in result:
         mesh_parts.append(trimesh.Trimesh(vs, fs))

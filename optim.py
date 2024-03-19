@@ -13,8 +13,9 @@ def change_Q_frame(Q: np.ndarray, M: pin.SE3):
     var_xy, var_z, var_angle = Q
 
     cov_trans_cam_aligned = np.diag([var_xy, var_xy, var_z])
-    v = np.cross([0, 0, 1], t_o/np.linalg.norm(t_o))
-    ang = np.arccos(np.dot([0, 0, 1], t_o/np.linalg.norm(t_o)))
+    t_o_norm = t_o/np.linalg.norm(t_o)
+    v = np.cross([0, 0, 1], t_o_norm)
+    ang = np.arccos(np.dot([0, 0, 1], t_o_norm))
     rot = pin.exp3(ang * v/np.linalg.norm(v))
     cov_trans_c = rot @ cov_trans_cam_aligned @ rot.T  # cov[AZ] = A cov[Z] A^T
     rot = R_o.T
@@ -42,7 +43,7 @@ def res_grad_se3(M: pin.SE3, Mm: pin.SE3, Q: np.ndarray):
     """
     Mrel = Mm.inverse()*M
     res = pin.log(Mrel).vector
-    if Mm.translation[0] < 1e-3 and Mm.translation[1] < 1e-3: # object is in front of the camera, change of frame is not needed
+    if abs(Mm.translation[0]) < 1e-4 and abs(Mm.translation[1]) < 1e-4: # object is in front of the camera, change of frame is not needed
         Q_obj = np.diag([Q[0], Q[0], Q[1], Q[2], Q[2], Q[2]])
     else:
         Q_obj = change_Q_frame(Q, Mm)

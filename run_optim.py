@@ -20,7 +20,9 @@ from optim import (
     update_est,
     clip_grad,
     std_to_Q_aligned,
-    cov_to_R
+    cov_to_sqrt_inf,
+    error_se3, 
+    error_r3_so3
 )
 from spatial import perturb_se3
 from scripts.cov import show_cov_ellipsoid
@@ -115,7 +117,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     dx = np.zeros(6*N_SHAPES)
 
     Q_lst = [std_to_Q_aligned(std_xy_z_theta, wMo_lst_init[i]) for i in range(N_SHAPES)]
-    R_lst = [cov_to_R(Q) for Q in Q_lst]
+    L_lst = [cov_to_sqrt_inf(Q) for Q in Q_lst]
     
     for i in tqdm(range(N_step)):
         if i % lr_freq == 0 and i != 0:
@@ -133,7 +135,9 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff)
         else:
             cost_c_stat, grad_c_stat = 0.0, np.zeros(6*N_SHAPES)
-        res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, R_lst)
+        # TODO: parameter to choose one of the error functions?
+        # res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, L_lst, error_fun=error_se3)
+        res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, L_lst, error_fun=error_r3_so3)
 
         grad_c_obj = clip_grad(grad_c_obj)
         grad_c_stat = clip_grad(grad_c_stat)

@@ -39,38 +39,76 @@ def std_to_Q_aligned(std_xy_z_theta: List[float], Mm: pin.SE3) -> np.ndarray:
     Q_aligned = change_Q_frame([var_xy, var_z, var_theta], Mm)
     return Q_aligned
 
-def cov_to_R(cov: np.ndarray) -> np.ndarray:
+
+def cov_to_sqrt_inf(cov: np.ndarray) -> np.ndarray:
     """
-    Convert covariance to rotation matrix.
+    Convert covariance to the square root of the information matrix.
     """
-    I = np.linalg.inv(cov)
-    R = np.linalg.cholesky(I)
-    return R
+    # Inverse the covariance to get an information matrix
+    I = np.linalg.inv(cov)  
+    # Compute the square root of the information matrix as its Cholesky decomposition
+    # Numpy uses I = L @ L.T convention, L -> lower triangular matrix
+    L = np.linalg.cholesky(I)  
+    return L
 
 
-def res_grad_se3(M: pin.SE3, Mm: pin.SE3, Q: np.ndarray):
+def error_se3(M: pin.SE3, Mm: pin.SE3, jac=False):
     """
     Happypose measurement distance residual and gradient.
 
     M: estimated pose
     Mm: measured pose
-    Q: covariance (3 values for xy, z and angles, respectively)
-
-    Return:
-    - residual(M,Mm) = T - Tm := Log6(Tm.inv()@T)
-    and 
-    - gradient = res * dres/dM
     """
     Mrel = Mm.inverse()*M
-    res = pin.log(Mrel).vector
-    res = Q @ res
-    J = pin.Jlog6(Mrel)
-    return res, res @ J
+    e = pin.log(Mrel).vector
+    if jac:
+        J = pin.Jlog6(Mrel)
+        return e, J
+    else:
+        return e
 
 
-def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q_lst: List[np.ndarray]):
+def error_r3_so3(M: pin.SE3, Mm: pin.SE3, jac=False):
+    """
+    Happypose measurement distance residual and gradient.
+
+    M: estimated pose
+    Mm: measured pose
+    """
+    et = M.translation - Mm.translation
+    Rrel = Mm.rotation.T@M.rotation
+    eo = pin.log3(Rrel)
+    e = np.concatenate([et,eo])
+    J = np.zeros((6,6))
+    if jac:
+        J[:3,:3] = M.rotation
+        J[3:,3:] = pin.Jlog3(Rrel)
+        return e, J
+    else:
+        return e
+
+
+def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List[np.ndarray], error_fun=error_se3):
     """
     Compute residuals and gradients for all pose estimates|measurement pairs.
+
+    For one pose, compute error e and jacobian matrix J:=de/dM.
+    The perception cost function is by definition:
+    cp(M) = 0.5 ||e(M)||^2_Q = 0.5 e.T Q^{-1} e
+    
+    with Q covariance of the measurement.
+    The inverse of the covariance has been decomposed using Cholesky decomposition:
+    Q^{-1} = L L.T
+    so that we can write
+    cp(M) = 0.5 (e.T L) (L.T e) = 0.5 ||L.T e||^2 
+
+    The residuals are then defined as 
+    r(M) = L.T e(M)
+
+    and the gradient of cp as
+    g := dcp/cM = dcp/dr dr/dM = r L.T J
+    where J := de/dM is the error jacobian.
+
 
     Inputs:
     - M_lst: list of estimated poses
@@ -86,7 +124,12 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q_lst: List
     grad = np.zeros(6*N)
     res = np.zeros(6*N)
     for i in range(N):
-        res[6*i:6*i+6], grad[6*i:6*i+6] = res_grad_se3(M_lst[i], Mm_lst[i], Q_lst[i])
+        L = L_lst[i]
+        e, J = error_fun(M_lst[i], Mm_lst[i])
+        r = L @ e
+        g = r @ L.T @ J
+        res[6*i:6*i+6], grad[6*i:6*i+6] = r, g
+        # res[6*i:6*i+6], grad[6*i:6*i+6] = res_grad_se3(M_lst[i], Mm_lst[i], L_lst[i])
     
     return res, grad
 

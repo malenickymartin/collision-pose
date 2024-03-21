@@ -589,20 +589,20 @@ def draw_pc_and_objects(ds_name: str):
     rigid_objects = load_meshes(MESHES_PATH / ds_name, convex=False)
     vis = create_visualizer()
     for scene in floor_se3s:
-        with open(DATASETS_PATH / ds_name / "test" / f"{int(scene):06d}" / "scene_gt.json", "r") as f:
+        with open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "scene_gt.json", "r") as f:
             gt = json.load(f)
         for im in floor_se3s[scene]:
             print(scene, im)
-            with open(DATASETS_PATH / ds_name / "test" / f"{int(scene):06d}" / "scene_camera.json", "r") as f:
+            with open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "scene_camera.json", "r") as f:
                 cam_json = json.load(f)
                 K = np.array(cam_json[im]["cam_K"]).reshape(3,3)
             gt_poses = {}
             for obj in gt[im]:
                 gt_poses[obj["obj_id"]] = pin.SE3(np.array(obj["cam_R_m2c"]).reshape(3,3), np.array(obj["cam_t_m2c"])/1000)
-            depth = np.array(Image.open(DATASETS_PATH / ds_name / "test" / f"{int(scene):06d}" / "depth" / f"{int(im):06d}.png"))
+            depth = np.array(Image.open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "depth" / f"{int(im):06d}.png"))
             for i in range(len(rigid_objects)):
-                if (DATASETS_PATH / ds_name / "test" / f"{int(scene):06d}" / "mask" / f"{int(im):06d}_{i:06d}.png").is_file():
-                    mask = Image.open(DATASETS_PATH / ds_name / "test" / f"{int(scene):06d}" / "mask" / f"{int(im):06d}_{i:06d}.png")
+                if (DATASETS_PATH / ds_name / f"{int(scene):06d}" / "mask" / f"{int(im):06d}_{i:06d}.png").is_file():
+                    mask = Image.open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "mask" / f"{int(im):06d}_{i:06d}.png")
                     mask = np.array(mask) !=  0
                     mask = ndimage.binary_dilation(mask, iterations=10)
                     depth[mask] = 0

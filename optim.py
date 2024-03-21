@@ -5,27 +5,47 @@ import pinocchio as pin
 import copy
 
 
-def change_Q_frame(Q: np.ndarray, M: pin.SE3):
+def change_Q_frame(var_xy_z_theta: List, M: pin.SE3) -> np.ndarray:
 
     t_o = M.translation
     R_o = M.rotation
 
-    var_xy, var_z, var_angle = Q
+    var_xy, var_z, var_theta = var_xy_z_theta
 
     cov_trans_cam_aligned = np.diag([var_xy, var_xy, var_z])
     t_o_norm = t_o/np.linalg.norm(t_o)
     v = np.cross([0, 0, 1], t_o_norm)
     ang = np.arccos(np.dot([0, 0, 1], t_o_norm))
-    rot = pin.exp3(ang * v/np.linalg.norm(v))
-    cov_trans_c = rot @ cov_trans_cam_aligned @ rot.T  # cov[AZ] = A cov[Z] A^T
-    rot = R_o.T
-    cov_trans_o = rot @ cov_trans_c @ rot.T  # cov[AZ] = A cov[Z] A^T
+    v_norm = np.linalg.norm(v)
+    if v_norm > 1e-6:
+        v = v/v_norm
+    rot = pin.exp3(ang * v)
+    cov_trans_o = rot @ cov_trans_cam_aligned @ rot.T  # cov[AZ] = A cov[Z] A^T
+    #rot = R_o.T
+    #cov_trans_o = rot @ cov_trans_c @ rot.T
 
     cov_o = np.zeros((6, 6))
     cov_o[:3, :3] = cov_trans_o
-    cov_o[3:6, 3:6] = np.diag([var_angle] * 3)
+    cov_o[3:6, 3:6] = np.diag([var_theta] * 3)
 
     return cov_o
+
+def std_to_Q_aligned(std_xy_z_theta: List[float], Mm: pin.SE3) -> np.ndarray:
+    """
+    Convert standard deviations to covariances aligned to to object.
+    """
+    std_xy, std_z, std_theta = std_xy_z_theta
+    var_xy, var_z, var_theta = std_xy**2, std_z**2, std_theta**2
+    Q_aligned = change_Q_frame([var_xy, var_z, var_theta], Mm)
+    return Q_aligned
+
+def cov_to_R(cov: np.ndarray) -> np.ndarray:
+    """
+    Convert covariance to rotation matrix.
+    """
+    I = np.linalg.inv(cov)
+    R = np.linalg.cholesky(I)
+    return R
 
 
 def res_grad_se3(M: pin.SE3, Mm: pin.SE3, Q: np.ndarray):
@@ -43,18 +63,12 @@ def res_grad_se3(M: pin.SE3, Mm: pin.SE3, Q: np.ndarray):
     """
     Mrel = Mm.inverse()*M
     res = pin.log(Mrel).vector
-    if abs(Mm.translation[0]) < 1e-4 and abs(Mm.translation[1]) < 1e-4: # object is in front of the camera, change of frame is not needed
-        Q_obj = np.diag([Q[0], Q[0], Q[1], Q[2], Q[2], Q[2]])
-    else:
-        Q_obj = change_Q_frame(Q, Mm)
-    Q_inv = np.linalg.inv(Q_obj)
-    Q_sqrt = np.linalg.cholesky(Q_inv)
-    res = Q_sqrt @ res
+    res = Q @ res
     J = pin.Jlog6(Mrel)
     return res, res @ J
 
 
-def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q: np.ndarray = np.eye(6)):
+def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q_lst: List[np.ndarray]):
     """
     Compute residuals and gradients for all pose estimates|measurement pairs.
 
@@ -72,7 +86,7 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], Q: np.ndarr
     grad = np.zeros(6*N)
     res = np.zeros(6*N)
     for i in range(N):
-        res[6*i:6*i+6], grad[6*i:6*i+6] = res_grad_se3(M_lst[i], Mm_lst[i], Q)
+        res[6*i:6*i+6], grad[6*i:6*i+6] = res_grad_se3(M_lst[i], Mm_lst[i], Q_lst[i])
     
     return res, grad
 

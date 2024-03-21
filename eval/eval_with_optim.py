@@ -183,7 +183,9 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
 
     for scene in tqdm(scenes):
+        scene = 4
         for im in tqdm(scenes[scene]):
+            im = 116
             curr_labels = []
             curr_meshes = []
             curr_meshes_decomp = []
@@ -223,32 +225,26 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
 if __name__ == "__main__":
     params = {
         "N_step": 1000,
-        "coll_grad_scale": 0.01,
-        "learning_rate": 0.001,
-        "step_lr_decay": 0.5,
-        "step_lr_freq": 100,
-        "Q": [0.01, 0.06, 0.26],
+        "coll_grad_scale": 1,
+        "learning_rate": 0.005,
+        "step_lr_decay": 1,
+        "step_lr_freq": 1000,
+        "std_xy_z_theta": [0.1, 0.445, 0.51],
         "method": "GD",
         "method_params": None
     }
 
-    params_try = [{"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "Q": [0.01, 0.06, 0.26],
+    params_try = [{"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.001, "step_lr_decay": 1, "step_lr_freq": 1000, "Q": [0.01, 0.06, 0.26],
+                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
                     "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.5, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "Q": [0.01, 0.06, 0.26],
+                  {"N_step": 1000, "coll_grad_scale": 0.5, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
                     "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.2, "learning_rate": 0.001, "step_lr_decay": 1, "step_lr_freq": 1000, "Q": [0.01, 0.06, 0.26],
+                  {"N_step": 1000, "coll_grad_scale": 0.2, "learning_rate": 0.001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
                     "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.01, "step_lr_decay": 0.9, "step_lr_freq": 50, "Q": [0.01, 0.06, 0.26],
+                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.01, "step_lr_decay": 0.9, "step_lr_freq": 50, "std_xy_z_theta": [0.1, 0,245, 0.51],
                     "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.05, "step_lr_decay": 0.9, "step_lr_freq": 50, "Q": [0.01, 0.06, 0.26],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.01, "step_lr_decay": 0.2, "step_lr_freq": 300, "Q": [0.01, 0.06, 0.26],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.05, "step_lr_decay": 0.5, "step_lr_freq": 100, "Q": [0.01, 0.06, 0.26],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.5, "learning_rate": 0.01, "step_lr_decay": 0.9, "step_lr_freq": 50, "Q": [0.01, 0.06, 0.26],
+                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.05, "step_lr_decay": 0.9, "step_lr_freq": 50, "std_xy_z_theta": [0.1, 0,245, 0.51],
                     "method": "GD", "method_params": None},
                   ]
     
@@ -260,18 +256,20 @@ if __name__ == "__main__":
     input_csv_name = "refiner-final-filtered_hopevideo-test.csv" # INPUT
     dataset_name = "hopevideo" # INPUT
     use_floor = "hope_bop_floor_poses_1mm_res_one_per_scene.json" #INPUT str of None
-    vis = False #INPUT
+    vis = True #INPUT
 
-    params = params_try[int(sys.argv[1])]
-    use_floor = floor_file_names[int(sys.argv[2])]
-    floor_name = floor_names[int(sys.argv[2])]
+    #params = params_try[int(sys.argv[1])]
+    #use_floor = floor_file_names[int(sys.argv[2])]
+    #floor_name = floor_names[int(sys.argv[2])]
+    floor_name = "optimized"
+    use_floor = floor_file_names[1]
 
-    output_csv_name = ("fog_001/"
+    output_csv_name = (""
                        f"{params['coll_grad_scale']}-"
                        f"{params['learning_rate']}-"
                        f"{params['step_lr_decay']}-"
                        f"{params['step_lr_freq']}-"
-                       f"{params['Q'][0]}-{params['Q'][1]}-{params['Q'][2]}-"
+                       f"{params['std_xy_z_theta'][0]}-{params['std_xy_z_theta'][1]}-{params['std_xy_z_theta'][2]}-"
                        f"{floor_name}_"
                        f"{dataset_name}-test").replace(".","") + ".csv"
     print(f"File name: {output_csv_name}")

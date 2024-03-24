@@ -7,28 +7,28 @@ import copy
 
 def change_Q_frame(var_xy_z_theta: List, M: pin.SE3) -> np.ndarray:
 
-    t_o = M.translation
-    R_o = M.rotation
+    t_c_o = M.translation
+    rot_c_o = M.rotation
 
     var_xy, var_z, var_theta = var_xy_z_theta
 
-    cov_trans_cam_aligned = np.diag([var_xy, var_xy, var_z])
-    t_o_norm = t_o/np.linalg.norm(t_o)
+    cov_trans_cp = np.diag([var_xy, var_xy, var_z])
+    t_o_norm = t_c_o/np.linalg.norm(t_c_o)
     v = np.cross([0, 0, 1], t_o_norm)
     ang = np.arccos(np.dot([0, 0, 1], t_o_norm))
     v_norm = np.linalg.norm(v)
     if v_norm > 1e-6:
         v = v/v_norm
-    rot = pin.exp3(ang * v)
-    cov_trans_o = rot @ cov_trans_cam_aligned @ rot.T  # cov[AZ] = A cov[Z] A^T
-    #rot = R_o.T
-    #cov_trans_o = rot @ cov_trans_c @ rot.T
+    rot_c_cp = pin.exp3(ang * v)
+    cov_trans_c = rot_c_cp @ cov_trans_cp @ rot_c_cp.T  # cov[AZ] = A cov[Z] A^T
+    
+    cov_rot_c = rot_c_o @ np.diag([var_theta] * 3) @ rot_c_o.T
 
-    cov_o = np.zeros((6, 6))
-    cov_o[:3, :3] = cov_trans_o
-    cov_o[3:6, 3:6] = np.diag([var_theta] * 3)
+    cov_c = np.zeros((6, 6))
+    cov_c[:3, :3] = cov_trans_c
+    cov_c[3:6, 3:6] = cov_rot_c
 
-    return cov_o
+    return cov_c
 
 def std_to_Q_aligned(std_xy_z_theta: List[float], Mm: pin.SE3) -> np.ndarray:
     """
@@ -125,11 +125,10 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List
     res = np.zeros(6*N)
     for i in range(N):
         L = L_lst[i]
-        e, J = error_fun(M_lst[i], Mm_lst[i])
-        r = L @ e
+        e, J = error_fun(M_lst[i], Mm_lst[i], True)
+        r = L.T @ e
         g = r @ L.T @ J
         res[6*i:6*i+6], grad[6*i:6*i+6] = r, g
-        # res[6*i:6*i+6], grad[6*i:6*i+6] = res_grad_se3(M_lst[i], Mm_lst[i], L_lst[i])
     
     return res, grad
 

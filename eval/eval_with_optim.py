@@ -183,9 +183,7 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
 
     for scene in tqdm(scenes):
-        scene = 4
         for im in tqdm(scenes[scene]):
-            im = 116
             curr_labels = []
             curr_meshes = []
             curr_meshes_decomp = []

@@ -203,22 +203,25 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         plt.show(block=False)
         print('Create vis')
         vis = create_visualizer(grid=True, axes=True)
-        input("Continue?")
+        input("Continue to init pose?")
         print('Init!')
         for j in range(N_SHAPES):
             show_cov_ellipsoid(vis, wMo_lst_init[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
         dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
         dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
         draw_scene(vis, vis_meshes, vis_meshes_stat, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
-        time.sleep(4)
+        input("Continue to optimized pose?")
+        time.sleep(2)
         print('optimized!')
         for j in range(N_SHAPES):
             show_cov_ellipsoid(vis, X[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
         dc_scene.compute_diffcol(X_lst[-1], col_req, col_req_diff)
         dc_scene.compute_diffcol_static(X_lst[-1], col_req, col_req_diff, diffcol=False)
         draw_scene(vis, vis_meshes, vis_meshes_stat, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
+        input("Continue to animation?")
         time.sleep(4)
         # Process
+        vis.delete()
         print("Animation start!")
         for i, Xtmp in enumerate(tqdm(X_lst)):
             if i % 10 != 0:
@@ -226,7 +229,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
             dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
             draw_scene(vis, vis_meshes, vis_meshes_stat, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
-            time.sleep(0.5)
+            time.sleep(0.1)
         print("Animation done!")
 
     return X

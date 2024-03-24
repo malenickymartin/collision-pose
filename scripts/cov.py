@@ -13,6 +13,7 @@ def meshcat_material(r, g, b, a):
     return material
 
 def get_ellipsoid(cov, nstd=2):
+    # https://users.cs.utah.edu/~tch/CS4640/resources/A%20geometric%20interpretation%20of%20the%20covariance%20matrix.pdf
     eigvals, eigvecs = np.linalg.eigh(cov)
     radii = np.sqrt(eigvals) * nstd
     return radii, eigvecs
@@ -55,7 +56,7 @@ def test_change_frame():
         # Generate random poses
         poses = [pin.SE3.Random() for _ in range(len(meshes))]
         for pose in poses:
-            pose.translation[:2] = 1
+            pose.translation[2] = 1
     
     covs = [change_Q_frame(Q, pose) for pose in poses]
 
@@ -72,7 +73,7 @@ if __name__ == "__main__":
     i = int(input("Press 1 to test_change_frame, 2 to plot points and ellipsoid: "))
     if i == 1:
         test_change_frame()
-    else:
+    elif i == 2:
         vis = meshcat.Visualizer(zmq_url="tcp://127.0.0.1:6000")
         vis.delete()
 
@@ -85,7 +86,7 @@ if __name__ == "__main__":
         for T in points_T:
             T.translation = np.random.multivariate_normal(mean_gt, cov_gt)
         for i, T in enumerate(points_T):
-            vis[f"point_{i}"].set_object(point_mesh, meshcat_material(*RED))
+            vis[f"point_{i}"].set_object(point_mesh, meshcat_material(*GREEN))
             vis[f"point_{i}"].set_transform(T.homogeneous)
 
 

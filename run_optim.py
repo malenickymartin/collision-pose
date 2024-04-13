@@ -20,7 +20,7 @@ from optim import (
     update_est,
     clip_grad,
     std_to_Q_aligned,
-    cov_to_sqrt_inf,
+    cov_to_sqrt_prec,
     error_se3, 
     error_r3_so3
 )
@@ -42,37 +42,43 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     - col_req_diff: the collision request for the diff
     - params: the optimization parameters, a dictionary containing:
         - N_step: the number of optimization steps, default 1000
+        - g_grad_scale: the scaling factor for the gravity gradient, default 5
         - coll_grad_scale: the scaling factor for the collision gradient, default 1
         - learning_rate: the learning rate, default 0.01
-        - step_lr_decay: the decay factor for the learning rate, default 0.5
+        - step_lr_decay: the decay factor for the learning rate, default 0.75
         - step_lr_freq: the frequency of the learning rate decay, default 100
         - std_xy_z_theta: the standard deviations for the translation and rotation, default is [0.1, 0,245, 0.51] which corresponds to variation of [0.01, 0.06, 0.26]
         - method: the optimization method to use, one of "GD", "MGD", "NGD", "adagrad", "rmsprop", "adam" # Ref: https://cs231n.github.io/neural-networks-3/#sgd
         - method_params: the parameters for the optimization method, e.g. mu for MGD, NGD, eps for adagrad, [decay, eps] for rmsprop, [beta1, beta2, eps] for adam
+        - coll_exp_scale: the scaling factor for the collision exponential, default 0
     - vis_meshes: the meshes to visualize the scene, default None (no visualization)
 
     Returns:
     - the optimized poses of the objects of type List[pin.SE3]
     """
-    # Check if optimization is needed
-    cost_c_obj, _ = dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
-    cost_c_stat, _ = dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff)
-    if cost_c_obj + cost_c_stat < 1e-3:
-        print("No collision detected, no need to optimize")
-        return wMo_lst_init
 
     # Params
     if params is None:
         params = {
             "N_step": 1000,
+            "g_grad_scale": 0,
             "coll_grad_scale": 1,
-            "learning_rate": 0.01,
-            "step_lr_decay": 0.5,
-            "step_lr_freq": 50,
+            "coll_exp_scale": 1,
+            "learning_rate": 0.0005,
+            "step_lr_decay": 0.25,
+            "step_lr_freq": 300,
             "std_xy_z_theta": [0.1, 0,245, 0.51],
             "method": "GD",
             "method_params": None
         }
+
+    # Check if optimization is needed
+    if not params["g_grad_scale"]:
+        cost_c_obj, _ = dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff, diffcol=False)
+        cost_c_stat, _ = dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
+        if cost_c_obj + cost_c_stat < 1e-3:
+            print("No collision detected, no need to optimize")
+            return wMo_lst_init
 
     # Logs
     visualize = vis_meshes is not None
@@ -88,6 +94,8 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
 
     # All
     std_xy_z_theta = params["std_xy_z_theta"]
+    g_grad_scale = params["g_grad_scale"]
+    coll_exp_scale = params["coll_exp_scale"]
     coll_grad_scale = params["coll_grad_scale"]
     N_step = params["N_step"]
     learning_rate = params["learning_rate"]
@@ -117,7 +125,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     dx = np.zeros(6*N_SHAPES)
 
     Q_lst = [std_to_Q_aligned(std_xy_z_theta, wMo_lst_init[i]) for i in range(N_SHAPES)]
-    L_lst = [cov_to_sqrt_inf(Q) for Q in Q_lst]
+    L_lst = [cov_to_sqrt_prec(Q) for Q in Q_lst]
     
     for i in tqdm(range(N_step)):
         if i % lr_freq == 0 and i != 0:
@@ -130,19 +138,27 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             # Evaluate gradient at current state
             X_eval = X
 
-        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff)
+        # Compute obj-obj collision gradients
+        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff, coll_exp_scale)
+
+        # Compute obj-static collision gradients
         if len(dc_scene.statics_convex) > 0:
-            cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff)
+            cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff, coll_exp_scale)
         else:
             cost_c_stat, grad_c_stat = 0.0, np.zeros(6*N_SHAPES)
-        # TODO: parameter to choose one of the error functions?
-        # res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, L_lst, error_fun=error_se3)
+
+        # Compute gravity gradient
+        if g_grad_scale and len(dc_scene.statics_convex) > 0:
+            grad_g = dc_scene.compute_gravity(X_eval, grad_c_stat, grad_c_obj)
+        else:
+            grad_g = np.zeros(6*N_SHAPES)
+
+        # Compute perception gradients
         res_p, grad_p = perception_res_grad(X_eval, wMo_lst_init, L_lst, error_fun=error_r3_so3)
 
-        grad_c_obj = clip_grad(grad_c_obj)
-        grad_c_stat = clip_grad(grad_c_stat)
         grad_c = grad_c_obj + grad_c_stat
-        grad = coll_grad_scale*grad_c + grad_p
+        grad = coll_grad_scale*grad_c + grad_p + g_grad_scale * grad_g
+        grad = clip_grad(grad)
 
         if method == 'GD':
             dx = -learning_rate*grad
@@ -202,8 +218,8 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         ax[2].set_title('grad norm perception')
         plt.show(block=False)
         print('Create vis')
-        vis = create_visualizer(grid=True, axes=True)
         input("Continue to init pose?")
+        vis = create_visualizer(grid=True, axes=True)
         print('Init!')
         for j in range(N_SHAPES):
             show_cov_ellipsoid(vis, wMo_lst_init[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
@@ -215,13 +231,12 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         print('optimized!')
         for j in range(N_SHAPES):
             show_cov_ellipsoid(vis, X[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
-        dc_scene.compute_diffcol(X_lst[-1], col_req, col_req_diff)
+        dc_scene.compute_diffcol(X_lst[-1], col_req, col_req_diff, diffcol=False)
         dc_scene.compute_diffcol_static(X_lst[-1], col_req, col_req_diff, diffcol=False)
         draw_scene(vis, vis_meshes, vis_meshes_stat, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
         input("Continue to animation?")
         time.sleep(4)
         # Process
-        vis.delete()
         print("Animation start!")
         for i, Xtmp in enumerate(tqdm(X_lst)):
             if i % 10 != 0:

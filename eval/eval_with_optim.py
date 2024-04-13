@@ -165,10 +165,17 @@ def load_static(floor_poses_name:str):
 def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                        dataset_name: str, use_floor:Union[None, str],
                        params:dict = None, vis:bool = False):
-    rigid_objects = load_meshes(MESHES_PATH / dataset_name)
-    rigid_objects_decomp = load_multi_convex_meshes(MESHES_DECOMP_PATH / dataset_name)
+    meshes_ds_name = ""
+    if dataset_name[:4] == "ycbv":
+        meshes_ds_name = "ycbv"
+    elif dataset_name[:5] == "tless":
+        meshes_ds_name = "tless"
+    else:
+        meshes_ds_name = dataset_name
+    rigid_objects = load_meshes(MESHES_PATH / meshes_ds_name)
+    rigid_objects_decomp = load_multi_convex_meshes(MESHES_DECOMP_PATH / meshes_ds_name)
     if vis:
-        rigid_objects_vis = load_meshes(MESHES_PATH / dataset_name, convex=False)
+        rigid_objects_vis = load_meshes(MESHES_PATH / meshes_ds_name, convex=False)
     scenes = load_csv(POSES_OUTPUT_PATH / dataset_name / input_csv_name)
     if use_floor != None:
         floor_mesh, floor_se3s = load_static(use_floor)
@@ -176,12 +183,15 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
         floor_mesh_vis = [load_mesh(FLOOR_MESH_PATH, convex=False)]
     else:
         floor_mesh_vis = None
-    args = SelectStrategyConfig(1e-2, 100)
+    args = SelectStrategyConfig(1e-2, 100, 1, "finite_differences")
+    pydiffcol.set_seed(0)
     col_req, col_req_diff = select_strategy(args)
 
     with open(POSES_OUTPUT_PATH / dataset_name / output_csv_name, "w") as f:
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
 
+    ces = params["coll_exp_scale"]
+    ggs = params["g_grad_scale"]
     for scene in tqdm(scenes):
         for im in tqdm(scenes[scene]):
             curr_labels = []
@@ -210,7 +220,15 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
             else:
                 dc_scene = DiffColScene(curr_meshes, [], [], curr_meshes_decomp, pre_loaded_meshes=True)
             start_time = time.time()
+            params["coll_exp_scale"] = 0
+            params["g_grad_scale"] = 0
             X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+            params["coll_exp_scale"] = ces
+            params["g_grad_scale"] = ggs
+            X = optim(dc_scene, X, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+            params["coll_exp_scale"] = ces
+            params["g_grad_scale"] = 0
+            X = optim(dc_scene, X, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
             optim_time = (time.time() - start_time)
             for i in range(len(X)):
                 # One CSV row
@@ -223,27 +241,25 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
 if __name__ == "__main__":
     params = {
         "N_step": 1000,
-        "coll_grad_scale": 1,
-        "learning_rate": 0.005,
+        "g_grad_scale": 2,
+        "coll_grad_scale": 2,
+        "coll_exp_scale": 100,
+        "learning_rate": 0.0005,
         "step_lr_decay": 1,
         "step_lr_freq": 1000,
-        "std_xy_z_theta": [0.1, 0.445, 0.51],
+        "std_xy_z_theta": [0.1, 0.245, 0.51],
         "method": "GD",
         "method_params": None
     }
 
-    params_try = [{"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
-                   "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.5, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.2, "learning_rate": 0.001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.1, 0,245, 0.51],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.01, "step_lr_decay": 0.9, "step_lr_freq": 50, "std_xy_z_theta": [0.1, 0,245, 0.51],
-                    "method": "GD", "method_params": None},
-                  {"N_step": 1000, "coll_grad_scale": 0.1, "learning_rate": 0.05, "step_lr_decay": 0.9, "step_lr_freq": 50, "std_xy_z_theta": [0.1, 0,245, 0.51],
-                    "method": "GD", "method_params": None},
+    params_try = [{"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
+                   "method": "GD", "method_params": None, "coll_exp_scale": 100},
+                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0005, "step_lr_decay": 0.25, "step_lr_freq": 300, "std_xy_z_theta": [0.05, 0.49, 0.26],
+                    "method": "GD", "method_params": None, "coll_exp_scale": 100},
+                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.01, "step_lr_decay": 0.75, "step_lr_freq": 100, "std_xy_z_theta": [0.05, 0.49, 0.26],
+                    "method": "GD", "method_params": None, "coll_exp_scale": 100},
+                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
+                    "method": "GD", "method_params": None, "coll_exp_scale": 100},
                   ]
     
     floor_file_names = ["hope_bop_floor_poses_1mm_res_dilation.json",
@@ -262,12 +278,14 @@ if __name__ == "__main__":
     floor_name = "optimized"
     use_floor = floor_file_names[1]
 
-    output_csv_name = (""
+    output_csv_name = ("TEST/"
+                       f"{params['g_grad_scale']}-"
                        f"{params['coll_grad_scale']}-"
                        f"{params['learning_rate']}-"
                        f"{params['step_lr_decay']}-"
                        f"{params['step_lr_freq']}-"
                        f"{params['std_xy_z_theta'][0]}-{params['std_xy_z_theta'][1]}-{params['std_xy_z_theta'][2]}-"
+                       f"{params['coll_exp_scale']}-"
                        f"{floor_name}_"
                        f"{dataset_name}-test").replace(".","") + ".csv"
     print(f"File name: {output_csv_name}")

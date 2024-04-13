@@ -40,15 +40,15 @@ def std_to_Q_aligned(std_xy_z_theta: List[float], Mm: pin.SE3) -> np.ndarray:
     return Q_aligned
 
 
-def cov_to_sqrt_inf(cov: np.ndarray) -> np.ndarray:
+def cov_to_sqrt_prec(cov: np.ndarray) -> np.ndarray:
     """
-    Convert covariance to the square root of the information matrix.
+    Convert covariance to the precision matrix.
     """
-    # Inverse the covariance to get an information matrix
-    I = np.linalg.inv(cov)  
-    # Compute the square root of the information matrix as its Cholesky decomposition
-    # Numpy uses I = L @ L.T convention, L -> lower triangular matrix
-    L = np.linalg.cholesky(I)  
+    # Inverse the covariance to get an precision matrix
+    H = np.linalg.inv(cov)  
+    # Compute the square root of the precision matrix as its Cholesky decomposition
+    # Numpy uses H = L @ L.T convention, L -> lower triangular matrix
+    L = np.linalg.cholesky(H)  
     return L
 
 
@@ -106,14 +106,14 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List
     r(M) = L.T e(M)
 
     and the gradient of cp as
-    g := dcp/cM = dcp/dr dr/dM = r L.T J
+    g := dcp/cM = dcp/dr dr/dM = r.T L.T J
     where J := de/dM is the error jacobian.
 
 
     Inputs:
     - M_lst: list of estimated poses
     - Mm_lst: list of measured poses
-    - Q: measurement noise covariance
+    - L_lst: list of Cholesky decompositions of the precision matrices
 
     Returns:
     - res: array of residuals
@@ -127,7 +127,7 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List
         L = L_lst[i]
         e, J = error_fun(M_lst[i], Mm_lst[i], True)
         r = L.T @ e
-        g = r @ L.T @ J
+        g = r.T @ L.T @ J
         res[6*i:6*i+6], grad[6*i:6*i+6] = r, g
     
     return res, grad

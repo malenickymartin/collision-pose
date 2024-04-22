@@ -1,10 +1,10 @@
-mkdir -p eval/data/ycbv
-cd eval/data/ycbv
+mkdir -p eval/data/meshes
+cd eval/data/meshes
 wget -O data.zip https://bop.felk.cvut.cz/media/data/bop_datasets/ycbv_models.zip
 unzip data.zip
 rm -rf data.zip models_eval models_fine
-mv models meshes
-cd meshes
+mv models ycbv
+cd ycbv
 num_meshes=$(ls | grep -c ".ply")
 for i in `seq 1 $num_meshes`
 do

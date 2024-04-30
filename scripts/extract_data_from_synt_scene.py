@@ -1,7 +1,6 @@
 from config import DATASETS_PATH, POSES_OUTPUT_PATH, FLOOR_POSES_PATH
 import pinocchio as pin
 import numpy as np
-from pathlib import Path
 import json
 import csv
 
@@ -54,7 +53,7 @@ def save_floor_poses(dataset_name, scene_path):
     with open(floor_pose_path, "w") as f:
         json.dump(floor_poses, f)
 
-dataset_name = "tless_one"
-scene_path = Path("/local2/homes/malenma3/object_detection/datasets/")
+dataset_name = "tlessone"
+scene_path = DATASETS_PATH / dataset_name
 json_2_csv(dataset_name, scene_path)
 save_floor_poses(dataset_name, scene_path)

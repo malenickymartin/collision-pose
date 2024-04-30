@@ -1,38 +1,23 @@
 # collision-pose
 Object Pose Estimation from Images with Geometrical and Physical Consistency
 
-=============================================
 # Install
-Assuming diffcol already installed. Everything regarding evaluation is in "eval" directory, you may skip steps regarding this directory.
-1. Install requirements.  
-`pip install -r requirements.txt`  
-2. Download meshes.  
-`sh download_meshes.sh`  
-`sh eval/download_meshes_ycbv.sh`  
-3. Download test dataset from BOP.  
-`sh eval/download_test_dataset.sh`  
+First Diffcol needs to be installed, to do so you can follow guide in `setup/diffcol_intall_guide.txt`.
+### I. Collision-pose set-up
+The following steps only have to be done one time after downloading the repository:
+1. Add Diffcol to PYTHONPATH:\
+``export PYTHONPATH="${PYTHONPATH}:`pwd`/../diffcol/build/bindings/"``
+1. Install requirements:\
+`pip install -r setup/requirements.txt`
+### II. Dataset setup
+Do the following steps for each dataset used:
+1. Download your meshes to the data/meshes directory, or use the following example script to download meshes from [BOP Website](https://bop.felk.cvut.cz/datasets/):\
+`sh setup/download_meshes.sh {dataset name}`
+2. Make a convex decomposition of the meshes and store it in the data/meshes_decomp folder you can use script:\
+`python3 setup/mesh_decomposition.py {dataset name}`
+3. Some scripts (table pose estimation, point-cloud visualization) also require downloading the entire BOP dataset to the data/datasets folder, for this you can use the script:\
+`sh setup/download_test_dataset.sh {dataset name}`
 
-=============================================
-# Evaluation
-
-It is assumed that everything related to the "eval" directory was downloaded in the "Install" chapter.
-Next you will have to make convex decomposition of meshes with:  
-`python eval/mesh_decomposition.py`  
-You can either evaluated real scenes downloaded from BOP website or synthetic scenes created using Blenderproc. In the latter case, it is necessary that the ground truth scene information is stored in the [BOP format](https://github.com/thodan/bop_toolkit/blob/master/docs/bop_datasets_format.md#3d-object-models), same as the real scenes. For the real dataset Megapose results are saved in CSV file. Columns of this file are: scene_id, im_id, obj_id, score, R, t, time. The synthetic dataset has to have the results saved in separate JSON file for each image. Format of this file is taken from happypose/happypose/pose_estimators/megapose/src/megapose/scripts/run_inference_on_example.py.  
-If you have the results to evaluate you can run the following script:  
-`python eval/collision_evaluation.py`  
-You can then select which type of evaluation you want to proceed with. Note that the synthetic dataset evaluation will be much faster, since the pose of the floor is known (origin). For the read dataset the pose of floor is calculated from depth images using RANSAC.
-
-=============================================
-# Example simulated scene
-
-## Generate scene (stored in pickle)
-
-`blenderproc run simulate_object_cluster.py`  
-Outputs a scene.pkl storing object and camera poses and a hdf5 storing the rendered view.
-
-## bird-eye render of the scene
-`blenderproc vis hdf5 out/0.hdf5`
-
-# Scene optim
-`python run_optim.py`
+# Inference
+Several scripts are prepared for inference. You can use the complete pipeline using [Happypose](https://agimus-project.github.io/happypose/index.html) for inference on individual images, evaluate the entire dataset on the output of your pose estimator using `eval/eval_with_optim.py` or embed our method directly into your code using `src/optimizer`.
+If you are evaluating the entire dataset, the poses should be stored in [BOP format](https://github.com/thodan/bop_toolkit/blob/master/docs/bop_datasets_format.md).

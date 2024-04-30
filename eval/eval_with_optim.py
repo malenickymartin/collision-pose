@@ -7,24 +7,23 @@ import pinocchio as pin
 from pathlib import Path
 import json
 import hppfcl
-from typing import Union, List, Dict
+from typing import Union
 
 import pydiffcol
 from pydiffcol.utils import (
     select_strategy
 )
 
-from scene import DiffColScene, SelectStrategyConfig
-from run_optim import optim
-from config import MESHES_PATH, MESHES_DECOMP_PATH, FLOOR_MESH_PATH, DATASETS_PATH, POSES_OUTPUT_PATH, FLOOR_POSES_PATH
+from src.scene import DiffColScene, SelectStrategyConfig
+from src.optimizer import optim, three_phase_optim
+from config import (MESHES_PATH,
+                    MESHES_DECOMP_PATH,
+                    FLOOR_MESH_PATH,
+                    DATASETS_PATH,
+                    POSES_OUTPUT_PATH,
+                    FLOOR_POSES_PATH)
 
-from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam, load_meshes, load_multi_convex_meshes, load_csv, load_mesh
-
-
-def create_mesh(mesh_loader, obj_path: str):
-    mesh = mesh_loader.load(obj_path, np.array(3*[0.001]))
-    mesh.buildConvexHull(True, "Qt")
-    return mesh.convex
+from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam, load_meshes, load_meshes_decomp, load_csv, load_mesh
 
 def create_decomposed_mesh(mesh_loader, dir_path: str):
     meshes = []
@@ -35,34 +34,28 @@ def create_decomposed_mesh(mesh_loader, dir_path: str):
             meshes.append(mesh.convex)
     return meshes
 
-def save_optimized_bproc(params):
-
-    visualize = True
-    dataset_name = "ycbv_convex"
-
+def save_optimized_bproc(ds_name, params, visualize=False):
+    """
+    Optimizes poses of objects in BOP dataset using collision detection.
+    Inputs:
+    - ds_name: str, name of the dataset
+    - params: dict, optimization parameters
+    - visualize: bool, whether to visualize the optimization process
+    Returns: None
+    """
     args = SelectStrategyConfig(1e-2, 100)
     col_req, col_req_diff = select_strategy(args)
 
-    path_stat_objs = ["eval/data/floor.ply"]
-    mesh_loader = hppfcl.MeshLoader()
-
     print("Loading decomposed meshes...")
-    dataset_path = Path("eval/data") / dataset_name
-    path_objs_decomposed = dataset_path / "meshes_decomp"
-    mesh_objs_dict_decomposed = {}
-    for mesh_dir_path in path_objs_decomposed.iterdir():
-        mesh_label = int(mesh_dir_path.name)
-        mesh_objs_dict_decomposed[mesh_label] = create_decomposed_mesh(mesh_loader, str(mesh_dir_path))
-
+    path_objs_decomposed = MESHES_DECOMP_PATH / ds_name
+    mesh_objs_dict_decomposed = load_meshes_decomp(path_objs_decomposed)
     print("Loading meshes...")
-    path_objs_convex = dataset_path / "meshes"
-    mesh_objs_dict = {}
-    for mesh_dir_path in path_objs_convex.iterdir():
-        mesh_label = int(mesh_dir_path.name)
-        mesh_path = mesh_dir_path / f"obj_{mesh_label:06d}.ply"
-        mesh_objs_dict[mesh_label] = create_mesh(mesh_loader, str(mesh_path))
-    static_meshes = [create_mesh(mesh_loader, str(p)) for p in path_stat_objs]
+    path_objs_convex = MESHES_PATH / ds_name
+    mesh_objs_dict = load_meshes(path_objs_convex)
+    path_stat_objs = [FLOOR_MESH_PATH]
+    static_meshes = [load_mesh(str(p)) for p in path_stat_objs]
     
+    dataset_path = DATASETS_PATH / ds_name
     path_wMo_all = dataset_path / "happypose/outputs"
     gt_cam_path = dataset_path / "train_pbr/000000/scene_camera.json"
     wMo_lst_all = []
@@ -108,10 +101,17 @@ def save_optimized_bproc(params):
 
 
 def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, vis:bool = None):
-    """Optimizes pose of floor in YCBV BOP dataset using collision detection."""
+    """Optimizes pose of floor in YCBV BOP dataset using collision detection.
+    Inputs:
+    - dataset_name: str, name of the dataset
+    - floor_name: str, name of the floor
+    - params: dict, optimization parameters
+    - vis: bool, whether to visualize the optimization process
+    Returns: None
+    """
 
     rigid_objects = load_meshes(MESHES_PATH / dataset_name)
-    rigid_objects_decomp = load_multi_convex_meshes(MESHES_DECOMP_PATH / dataset_name)
+    rigid_objects_decomp = load_meshes_decomp(MESHES_DECOMP_PATH / dataset_name)
     floor_mesh, floor_se3s = load_static(floor_name)
     args = SelectStrategyConfig(1e-2, 100)
     col_req, col_req_diff = select_strategy(args)
@@ -154,6 +154,7 @@ def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, v
             json.dump(optimized_floor, f)
 
 def load_static(floor_poses_name:str):
+    """Loads floor mesh and poses from JSON file."""
     mesh_loader = hppfcl.MeshLoader()
     mesh = mesh_loader.load(str(FLOOR_MESH_PATH), np.array(3*[0.01]))
     mesh.buildConvexHull(True, "Qt")
@@ -165,6 +166,17 @@ def load_static(floor_poses_name:str):
 def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                        dataset_name: str, use_floor:Union[None, str],
                        params:dict = None, vis:bool = False):
+    """
+    Optimizes poses of objects in BOP dataset using collision detection.
+    Inputs:
+    - input_csv_name: str, name of the input CSV file
+    - output_csv_name: str, name of the output CSV file
+    - dataset_name: str, name of the dataset
+    - use_floor: str, name of the floor
+    - params: dict, optimization parameters
+    - vis: bool, whether to visualize the optimization process
+    Returns: None
+    """
     meshes_ds_name = ""
     if dataset_name[:4] == "ycbv":
         meshes_ds_name = "ycbv"
@@ -173,7 +185,7 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
     else:
         meshes_ds_name = dataset_name
     rigid_objects = load_meshes(MESHES_PATH / meshes_ds_name)
-    rigid_objects_decomp = load_multi_convex_meshes(MESHES_DECOMP_PATH / meshes_ds_name)
+    rigid_objects_decomp = load_meshes_decomp(MESHES_DECOMP_PATH / meshes_ds_name)
     if vis:
         rigid_objects_vis = load_meshes(MESHES_PATH / meshes_ds_name, convex=False)
     scenes = load_csv(POSES_OUTPUT_PATH / dataset_name / input_csv_name)
@@ -183,15 +195,13 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
         floor_mesh_vis = [load_mesh(FLOOR_MESH_PATH, convex=False)]
     else:
         floor_mesh_vis = None
-    args = SelectStrategyConfig(1e-2, 100, 1, "finite_differences")
+    args = SelectStrategyConfig(1e-1, 50, 2, "first_order_gaussian")
     pydiffcol.set_seed(0)
     col_req, col_req_diff = select_strategy(args)
 
     with open(POSES_OUTPUT_PATH / dataset_name / output_csv_name, "w") as f:
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
 
-    ces = params["coll_exp_scale"]
-    ggs = params["g_grad_scale"]
     for scene in tqdm(scenes):
         for im in tqdm(scenes[scene]):
             curr_labels = []
@@ -220,15 +230,10 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
             else:
                 dc_scene = DiffColScene(curr_meshes, [], [], curr_meshes_decomp, pre_loaded_meshes=True)
             start_time = time.time()
-            params["coll_exp_scale"] = 0
-            params["g_grad_scale"] = 0
-            X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
-            params["coll_exp_scale"] = ces
-            params["g_grad_scale"] = ggs
-            X = optim(dc_scene, X, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
-            params["coll_exp_scale"] = ces
-            params["g_grad_scale"] = 0
-            X = optim(dc_scene, X, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+            if params["g_grad_scale"] == 0:
+                X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+            else:
+                X = three_phase_optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
             optim_time = (time.time() - start_time)
             for i in range(len(X)):
                 # One CSV row
@@ -243,18 +248,18 @@ if __name__ == "__main__":
         "N_step": 1000,
         "g_grad_scale": 2,
         "coll_grad_scale": 2,
-        "coll_exp_scale": 100,
-        "learning_rate": 0.0005,
+        "coll_exp_scale": 0,
+        "learning_rate": 0.0001,
         "step_lr_decay": 1,
         "step_lr_freq": 1000,
-        "std_xy_z_theta": [0.1, 0.245, 0.51],
+        "std_xy_z_theta": [0.05, 0.49, 0.26],
         "method": "GD",
         "method_params": None
     }
 
-    params_try = [{"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0005, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
-                   "method": "GD", "method_params": None, "coll_exp_scale": 100},
-                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0005, "step_lr_decay": 0.25, "step_lr_freq": 300, "std_xy_z_theta": [0.05, 0.49, 0.26],
+    params_try = [{"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
+                   "method": "GD", "method_params": None, "coll_exp_scale": 0},
+                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 0, "learning_rate": 0.0001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
                     "method": "GD", "method_params": None, "coll_exp_scale": 100},
                   {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.01, "step_lr_decay": 0.75, "step_lr_freq": 100, "std_xy_z_theta": [0.05, 0.49, 0.26],
                     "method": "GD", "method_params": None, "coll_exp_scale": 100},
@@ -262,21 +267,37 @@ if __name__ == "__main__":
                     "method": "GD", "method_params": None, "coll_exp_scale": 100},
                   ]
     
-    floor_file_names = ["hope_bop_floor_poses_1mm_res_dilation.json",
-                        "hope_bop_floor_poses_1mm_res_optimized.json",
-                        None]
-    floor_names = ["dilation", "optimized", "none"]
+    floor_file_names = {"hopevideo":"hope_bop_floor_poses_1mm_res_optimized.json",
+                        "tless":"tless_bop_floor_poses_1mm_res_optimized.json",
+                        "ycbv":"ycbv_bop_floor_poses_1mm_res_optimized.json",
+                        "ycbvone":"ycbv_one_synt_floor_gt.json",
+                        "tlessone":"tless_one_synt_floor_gt.json"}
+    floor_names = ["optimized", "none"]
 
-    input_csv_name = "refiner-final-filtered_hopevideo-test.csv" # INPUT
-    dataset_name = "hopevideo" # INPUT
-    use_floor = "hope_bop_floor_poses_1mm_res_one_per_scene.json" #INPUT str of None
+    input_csv_names = {"hopevideo":"refiner-final-filtered_hopevideo-test.csv",
+                       "tless":"refiner-final-filtered_tless-test.csv",
+                       "ycbv":"gt-refiner-final_ycbv-test.csv",
+                       "ycbvone":"refiner-final_ycbvone-test.csv",
+                       "tlessone":"refiner-final_tlessone-test.csv"} # INPUT
+    
+    dataset_names = ["hopevideo","ycbv","tless","ycbvone","tlessone"] # INPUT
     vis = True #INPUT
 
-    #params = params_try[int(sys.argv[1])]
-    #use_floor = floor_file_names[int(sys.argv[2])]
-    #floor_name = floor_names[int(sys.argv[2])]
-    floor_name = "optimized"
-    use_floor = floor_file_names[1]
+    #dataset_name = dataset_names[int(sys.argv[1])]
+    dataset_name = "ycbv"
+    #params = params_try[int(sys.argv[2])]
+    params = params_try[0]
+    #floor_name = floor_names[int(sys.argv[3])]
+    floor_name = floor_names[0]
+
+    input_csv_name = input_csv_names[dataset_name]
+    if floor_name == "none":
+        use_floor = None
+        if params["g_grad_scale"] != 0:
+            exit()
+    else:
+        use_floor = floor_file_names[dataset_name]
+    
 
     output_csv_name = ("TEST/"
                        f"{params['g_grad_scale']}-"

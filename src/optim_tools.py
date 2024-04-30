@@ -1,4 +1,4 @@
-from typing import List, Dict
+from typing import List, Tuple
 import numpy as np
 from numpy.linalg import norm
 import pinocchio as pin
@@ -6,6 +6,14 @@ import copy
 
 
 def change_Q_frame(var_xy_z_theta: List, M: pin.SE3) -> np.ndarray:
+    """
+    Change the covariance matrix frame to the camera frame.
+    Inputs:
+        var_xy_z_theta: list of variances for x, y, z, theta
+        M: pose of the object
+    Returns:
+        cov_c: covariance matrix in the camera frame
+    """
 
     t_c_o = M.translation
     rot_c_o = M.rotation
@@ -33,6 +41,11 @@ def change_Q_frame(var_xy_z_theta: List, M: pin.SE3) -> np.ndarray:
 def std_to_Q_aligned(std_xy_z_theta: List[float], Mm: pin.SE3) -> np.ndarray:
     """
     Convert standard deviations to covariances aligned to to object.
+    Inputs:
+        std_xy_z_theta: list of standard deviations for x, y, z, theta
+        Mm: measured pose
+    Returns:
+        Q_aligned: covariance matrix aligned to the object
     """
     std_xy, std_z, std_theta = std_xy_z_theta
     var_xy, var_z, var_theta = std_xy**2, std_z**2, std_theta**2
@@ -43,6 +56,10 @@ def std_to_Q_aligned(std_xy_z_theta: List[float], Mm: pin.SE3) -> np.ndarray:
 def cov_to_sqrt_prec(cov: np.ndarray) -> np.ndarray:
     """
     Convert covariance to the precision matrix.
+    Inputs:
+        cov: covariance matrix
+    Returns:
+        L: Cholesky decomposition of the precision matrix
     """
     # Inverse the covariance to get an precision matrix
     H = np.linalg.inv(cov)  
@@ -52,12 +69,15 @@ def cov_to_sqrt_prec(cov: np.ndarray) -> np.ndarray:
     return L
 
 
-def error_se3(M: pin.SE3, Mm: pin.SE3, jac=False):
+def error_se3(M: pin.SE3, Mm: pin.SE3, jac=False) -> np.ndarray:
     """
     Happypose measurement distance residual and gradient.
-
-    M: estimated pose
-    Mm: measured pose
+    Inputs:
+        M: estimated pose
+        Mm: measured pose
+        jac: flag to compute the gradient
+    Returns:
+        residual vector or residual vector and gradient
     """
     Mrel = Mm.inverse()*M
     e = pin.log(Mrel).vector
@@ -68,12 +88,15 @@ def error_se3(M: pin.SE3, Mm: pin.SE3, jac=False):
         return e
 
 
-def error_r3_so3(M: pin.SE3, Mm: pin.SE3, jac=False):
+def error_r3_so3(M: pin.SE3, Mm: pin.SE3, jac=False) -> np.ndarray:
     """
     Happypose measurement distance residual and gradient.
-
-    M: estimated pose
-    Mm: measured pose
+    Inputs:
+        M: estimated pose
+        Mm: measured pose
+        jac: flag to compute the gradient
+    Returns:
+        residual vector or residual vector and gradient
     """
     et = M.translation - Mm.translation
     Rrel = Mm.rotation.T@M.rotation
@@ -88,7 +111,7 @@ def error_r3_so3(M: pin.SE3, Mm: pin.SE3, jac=False):
         return e
 
 
-def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List[np.ndarray], error_fun=error_se3):
+def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List[np.ndarray], error_fun=error_se3) -> Tuple[np.ndarray, np.ndarray]:
     """
     Compute residuals and gradients for all pose estimates|measurement pairs.
 
@@ -132,9 +155,15 @@ def perception_res_grad(M_lst: List[pin.SE3], Mm_lst: List[pin.SE3], L_lst: List
     
     return res, grad
 
-def clip_grad(grad, thr_grad_t=100, thr_grad_R=100):
+def clip_grad(grad, thr_grad_t=100, thr_grad_R=100) -> np.ndarray:
     """
     Clip the gradient to avoid large steps.
+    Inputs:
+        grad: gradient
+        thr_grad_t: threshold for translation part
+        thr_grad_R: threshold for rotation part
+    Returns:
+        clipped gradient
     """
     grad = copy.deepcopy(grad) # copy the gradient to avoid modifying the original
     grad = grad.reshape((-1,2,3)) # 2x3 matrix for each pose
@@ -148,22 +177,40 @@ def clip_grad(grad, thr_grad_t=100, thr_grad_R=100):
     return grad.reshape(-1) # return clipped gradients
 
 
-def rplus_se3(M, dm):
+def normalize_se3(M):
+    """
+    Normalize the quaternion part of the SE3 object and return the normalized SE3 object.
+    Inputs:
+        M: SE3 object
+    Returns:
+        SE3 object with normalized rotation part
+    """
+    pose = pin.SE3ToXYZQUAT(M)
+    q_norm = np.linalg.norm(pose[3:])
+    pose[3:] = pose[3:] / q_norm
+    return pin.XYZQUATToSE3(pose)
+
+
+def rplus_se3(M: pin.SE3, dm: np.ndarray) -> pin.SE3:
     """
     Right-plus operation for SE3.
-
-    M: SE3 object
-    dm: se3 tangent space "delta"
+    Inputs:
+        M: SE3 object
+        dm: se3 tangent space "delta"
+    Returns:
+        M*exp(dm)
     """
     return M*pin.exp(dm)
 
 
-def update_est(X: List[pin.SE3], dx: np.ndarray):
+def update_est(X: List[pin.SE3], dx: np.ndarray) -> List[pin.SE3]:
     """
     Update estimated poses.
-
-    X: list of object pose object variables
-    dx: update step as an array of se3 tangent space "deltas"
+    Inputs:
+        X: list of object pose object variables
+        dx: update step as an array of se3 tangent space "deltas"
+    Returns:
+        list of updated object poses X*exp(dx)
     """
     assert 6*len(X) == len(dx)
     return [rplus_se3(M,dx[6*i:6*i+6]) for i, M in enumerate(X)]

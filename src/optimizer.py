@@ -1,21 +1,18 @@
 import time
 from copy import deepcopy
-from tqdm import tqdm
 import numpy as np
 from numpy.linalg import norm
 import pinocchio as pin
 import matplotlib.pyplot as plt
 from typing import Union, List, Dict
-
-import pydiffcol
-from pydiffcol.utils import (
-    select_strategy
-)
-from pydiffcol.utils_render import create_visualizer
+import meshcat
 import hppfcl
 
-from scene import DiffColScene, draw_scene, read_poses_pickle, SelectStrategyConfig
-from optim import (
+import pydiffcol
+
+from src.scene import DiffColScene
+from src.vis import draw_scene
+from src.optim_tools import (
     perception_res_grad,
     update_est,
     clip_grad,
@@ -24,8 +21,44 @@ from optim import (
     error_se3, 
     error_r3_so3
 )
-from spatial import perturb_se3
-from scripts.cov import show_cov_ellipsoid
+from src.vis import show_cov_ellipsoid
+
+def three_phase_optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
+                      col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
+                      params: Union[Dict[str, Union[str,int,List]], None] = None,
+                      vis_meshes: Union[List, None] = None, vis_meshes_stat: Union[List, None] = None) -> List[pin.SE3]:
+    """
+    Optimize the poses of the objects in the scene.
+    The optimization is done in three phases: first without gravity only with collisions, then with gravity, and again only with collisions.
+    Inputs: same as optim
+    Returns: same as optim
+    """
+    if params is None:
+        params = {
+            "N_step": 1000,
+            "g_grad_scale": 2,
+            "coll_grad_scale": 2,
+            "coll_exp_scale": 0,
+            "learning_rate": 0.0001,
+            "step_lr_decay": 1,
+            "step_lr_freq": 1000,
+            "std_xy_z_theta": [0.05, 0.49, 0.26],
+            "method": "GD",
+            "method_params": None
+        }
+    ces = params["coll_exp_scale"]
+    ggs = params["g_grad_scale"]
+    params["coll_exp_scale"] = 0
+    params["g_grad_scale"] = 0
+    X = optim(dc_scene, wMo_lst_init, col_req, col_req_diff, params, vis_meshes, vis_meshes_stat)
+    params["coll_exp_scale"] = ces
+    params["g_grad_scale"] = ggs
+    X = optim(dc_scene, X, col_req, col_req_diff, params, vis_meshes, vis_meshes_stat)
+    params["coll_exp_scale"] = ces
+    params["g_grad_scale"] = 0
+    X = optim(dc_scene, X, col_req, col_req_diff, params, vis_meshes, vis_meshes_stat)
+    params["g_grad_scale"] = ggs
+    return X
 
 
 def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
@@ -33,7 +66,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
           params: Union[Dict[str, Union[str,int,List]], None] = None,
           vis_meshes: Union[List, None] = None, vis_meshes_stat: Union[List, None] = None) -> List[pin.SE3]:
     """
-    Optimize the poses of the objects in the scene to minimize the collision cost and the perception cost.
+    Optimize the poses of the objects in the scene to minimize the collision, perception and gravity costs.
 
     Inputs:
     - dc_scene: the scene to optimize
@@ -52,7 +85,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         - method_params: the parameters for the optimization method, e.g. mu for MGD, NGD, eps for adagrad, [decay, eps] for rmsprop, [beta1, beta2, eps] for adam
         - coll_exp_scale: the scaling factor for the collision exponential, default 0
     - vis_meshes: the meshes to visualize the scene, default None (no visualization)
-
+    - vis_meshes_stat: the static meshes to visualize the scene, default None (no visualization)
     Returns:
     - the optimized poses of the objects of type List[pin.SE3]
     """
@@ -61,13 +94,13 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     if params is None:
         params = {
             "N_step": 1000,
-            "g_grad_scale": 0,
-            "coll_grad_scale": 1,
-            "coll_exp_scale": 1,
-            "learning_rate": 0.0005,
-            "step_lr_decay": 0.25,
-            "step_lr_freq": 300,
-            "std_xy_z_theta": [0.1, 0,245, 0.51],
+            "g_grad_scale": 2,
+            "coll_grad_scale": 2,
+            "coll_exp_scale": 0,
+            "learning_rate": 0.0001,
+            "step_lr_decay": 1,
+            "step_lr_freq": 1000,
+            "std_xy_z_theta": [0.05, 0.49, 0.26],
             "method": "GD",
             "method_params": None
         }
@@ -127,7 +160,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     Q_lst = [std_to_Q_aligned(std_xy_z_theta, wMo_lst_init[i]) for i in range(N_SHAPES)]
     L_lst = [cov_to_sqrt_prec(Q) for Q in Q_lst]
     
-    for i in tqdm(range(N_step)):
+    for i in range(N_step):
         if i % lr_freq == 0 and i != 0:
             learning_rate *= lr_decay
 
@@ -217,77 +250,38 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         ax[2].plot(steps, grad_p_norm)
         ax[2].set_title('grad norm perception')
         plt.show(block=False)
+        
         print('Create vis')
         input("Continue to init pose?")
-        vis = create_visualizer(grid=True, axes=True)
+        vis = meshcat.Visualizer(zmq_url="tcp://127.0.0.1:6000")
+        vis.delete()
         print('Init!')
-        for j in range(N_SHAPES):
-            show_cov_ellipsoid(vis, wMo_lst_init[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
+        # for j in range(N_SHAPES):
+        #     show_cov_ellipsoid(vis, wMo_lst_init[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
         dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff)
         dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
         draw_scene(vis, vis_meshes, vis_meshes_stat, wMo_lst_init, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
         input("Continue to optimized pose?")
         time.sleep(2)
         print('optimized!')
-        for j in range(N_SHAPES):
-            show_cov_ellipsoid(vis, X[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
+        # for j in range(N_SHAPES):
+        #     show_cov_ellipsoid(vis, X[j].translation, Q_lst[j][:3,:3], ellipsoid_id=j, nstd=3)
         dc_scene.compute_diffcol(X_lst[-1], col_req, col_req_diff, diffcol=False)
         dc_scene.compute_diffcol_static(X_lst[-1], col_req, col_req_diff, diffcol=False)
         draw_scene(vis, vis_meshes, vis_meshes_stat, X, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
-        input("Continue to animation?")
-        time.sleep(4)
-        # Process
-        print("Animation start!")
-        for i, Xtmp in enumerate(tqdm(X_lst)):
-            if i % 10 != 0:
-                continue
-            dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
-            dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
-            draw_scene(vis, vis_meshes, vis_meshes_stat, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
-            time.sleep(0.1)
-        print("Animation done!")
+        
+        # input("Continue to animation?")
+        # time.sleep(4)
+        # # Process
+        # print("Animation start!")
+        # for i, Xtmp in enumerate(tqdm(X_lst)):
+        #     if i % 10 != 0:
+        #         continue
+        #     dc_scene.compute_diffcol(Xtmp, col_req, col_req_diff, diffcol=False)
+        #     dc_scene.compute_diffcol_static(Xtmp, col_req, col_req_diff, diffcol=False)
+        #     draw_scene(vis, vis_meshes, vis_meshes_stat, Xtmp, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
+        #     time.sleep(0.1)
+        # print("Animation done!")
+        
 
     return X
-
-if __name__ == "__main__":
-    MESHCAT_VIS = True
-
-    SEED = 13
-    pin.seed(SEED)
-    np.random.seed(SEED)
-    pydiffcol.set_seed(SEED)
-
-    # LOAD blenderproc/pybullet simulation
-    # TODO: include path to mesh or shape spec
-    ####################
-    wMo_lst, wMc = read_poses_pickle('scene.pkl')
-    X_meas = perturb_se3(wMo_lst, sig_t=0.2, sig_o=0.0)
-    # X_init = perturb_se3(wMo_lst, sig_t=0.5, sig_o=0.5)
-    ####################
-
-    # # CREATE simple scene with 3-4 objects
-    # #####################
-    # # equilateral config
-    # # wMo_lst = poses_equilateral(d=2.1)
-    # # X_meas = poses_equilateral(d=1.5)
-    # wMo_lst = poses_tetraedron(d=2.1)
-    # X_meas = poses_tetraedron(d=1.5)
-    # X_init = X_meas
-    # #####################
-
-    N_SHAPES = len(wMo_lst)
-    path_objs = N_SHAPES*["meshes/icosphere.obj"]
-
-    path_stat_objs = ["eval/data/floor.ply", "eval/data/floor.ply"]
-    wMs_lst = [pin.SE3(np.eye(4)), pin.SE3(np.eye(4))]
-    wMs_lst[0].translation[2] = 1.75
-    wMs_lst[1].rotation = np.array([[np.cos(np.pi/3),0,np.sin(np.pi/3)],[0,1,0],[-np.sin(np.pi/3),0,np.cos(np.pi/3)]])
-
-    dc_scene = DiffColScene(path_objs, path_stat_objs, wMs_lst)
-        
-    args = SelectStrategyConfig()
-    args.noise = 1e-2
-    args.num_samples = 100
-    col_req, col_req_diff = select_strategy(args)
-
-    optim(dc_scene, X_meas, col_req, col_req_diff, visualize=MESHCAT_VIS)

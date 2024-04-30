@@ -12,15 +12,12 @@ from scipy import ndimage
 import pydiffcol
 from pathlib import Path
 import hppfcl
-from pydiffcol.utils import add_arguments_to_parser, select_strategy, select_targets, bring_shapes_to_dist
-from pydiffcol.utils_render import create_visualizer, draw_scene, renderPoint, meshcat_material, get_transform
 
-from config import DATASETS_PATH, MESHES_PATH, FLOOR_POSES_PATH, FLOOR_MESH_PATH
+from pydiffcol.utils import add_arguments_to_parser, select_strategy
 
-GREEN = np.array([110, 250, 90, 125]) / 255
-BLUE = np.array([90, 110, 250, 125]) / 255
+from config import FLOOR_POSES_PATH, FLOOR_MESH_PATH
 
-def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False, bring_to_zero=False) -> float:
+def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1) -> float:
     """
     Calculates the distance between two meshes.
     Inputs:
@@ -31,7 +28,6 @@ def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False
         scale_1: is float scale which will convert the units of the loaded mesh to meters 
                  (note that the load_meshes function already converts the units, so this will usually be 1)
         scale_2: same as scale_1
-        visualise: is a bool indicating whether the visualisation will be created 
     Returns: 
         d: distance between the two objects in meters
     """
@@ -77,9 +73,9 @@ def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False
     args.max_neighbors_search_level = 1
     args.noise = 1e-3
     args.num_samples = 6
-
-    (col_req, col_req_diff) = select_strategy(args, verbose=False)
+    col_req, _ = select_strategy(args, verbose=False)
     col_res = pydiffcol.DistanceResult()
+
     if not isinstance(SE3_1, pin.SE3):
         M1 = pin.SE3(*SE3_1)
     else:
@@ -89,24 +85,20 @@ def get_dist(path_1, path_2, SE3_1, SE3_2, scale_1=1, scale_2=1, visualise=False
     else:
         M2 = SE3_2
 
-    if visualise:
-        p1_desired, p2_desired = select_targets(shape1, shape2)
-        vis = create_visualizer(axes = True)
-        draw_scene(vis, shape1, M1, shape2, M2,
-            col_res.w1, col_res.w2, p1_desired, p2_desired,
-            render_faces=[False, False])
-        input("Press any key to continue.")
     d = pydiffcol.distance(shape1, M1, shape2, M2, col_req, col_res)
-    if bring_to_zero:
-        bring_shapes_to_dist(shape1, M1, shape2, M2, 0.0, col_req, col_res)
     
-    if visualise:
-        p1_desired, p2_desired = select_targets(shape1, shape2)
-        vis = create_visualizer(axes = True)
-        draw_scene(vis, shape1, M1, shape2, M2,
-            col_res.w1, col_res.w2, p1_desired, p2_desired,
-            render_faces=[False, False])
-    
+    return d
+
+def get_dist_convex(shape_1, shape_2, M1, M2):
+    parser = argparse.ArgumentParser()
+    add_arguments_to_parser(parser)
+    args = parser.parse_args()
+
+    (col_req, col_req_diff) = select_strategy(args, verbose=False)
+    col_res = pydiffcol.DistanceResult()
+
+    d = pydiffcol.distance(shape_1, M1, shape_2, M2, col_req, col_res)
+
     return d
 
 
@@ -292,7 +284,7 @@ def load_meshes(dataset_path, mesh_units = 0.001, convex:bool = True):
     return rigid_objects
 
 
-def load_multi_convex_meshes(dataset_path, mesh_units = 0.001):
+def load_meshes_decomp(dataset_path, mesh_units = 0.001):
     """
     Creates a dataset of convex decomposition of rigid objects.
     Inputs:
@@ -319,19 +311,6 @@ def load_multi_convex_meshes(dataset_path, mesh_units = 0.001):
         rigid_objects[label] = new_mesh
     return rigid_objects
 
-def draw_shape(vis, mesh, name, M, color):
-    """
-    Draws the shape in the visualizer.
-    Inputs:
-        vis: meshcat visualizer
-        mesh: meshcat object
-        name: name of the object
-        M: pose of the object (pinocchio.SE3)
-        color: color of the object
-    """
-    vis[name].set_object(mesh, meshcat_material(*color))
-    T = get_transform(M)
-    vis[name].set_transform(T)
 
 def img_2_world(u, K) -> np.ndarray:
     """
@@ -490,129 +469,3 @@ def get_floor_se3s(scenes_path, rigid_objects, floor_mesh, save_name):
             json.dump(floor_se3s, f)
         
     return floor_se3s
-
-
-def get_floor_se3_one_per_scene(scenes_path: Path, rigid_objects, floor_mesh):
-    step = 10
-
-    floor_se3s = {}
-    for scene_path in tqdm(scenes_path.iterdir()):
-
-        scene = int(scene_path.name)
-
-        with open(scene_path / "scene_gt.json", "r") as f:
-            scene_json = json.load(f)
-
-        with open(scene_path / "scene_camera.json", "r") as f:
-            camera_json = json.load(f)
-
-        Xy = []
-
-        for im_str in tqdm(scene_json):
-            im = int(im_str)
-
-            depth = Image.open(scene_path / "depth" / f"{im:06d}.png")
-            depth = np.array(depth)*camera_json[f"{im}"]["depth_scale"]
-
-            cMw = get_se3_from_bp_cam(camera_json[im_str])
-            wMc = cMw.inverse()
-
-            for i in range(len(rigid_objects)):
-                if (scene_path / "mask" / f"{im:06d}_{i:06d}.png").is_file():
-                    mask = Image.open(scene_path / "mask" / f"{im:06d}_{i:06d}.png")
-                    mask = np.array(mask) != 0
-                    mask = ndimage.binary_dilation(mask, iterations=10)
-                    depth[mask] = 0
-
-            K = np.reshape(camera_json[f"{im}"]["cam_K"], (3,3))
-            rows = np.arange(0, depth.shape[0], step=step, dtype=np.int32)
-            columns = np.arange(0, depth.shape[1], step=step, dtype=np.int32)
-            for i in rows:
-                for j in columns:
-                    if depth[i,j] > 1e-3:
-                        Xy.append(wMc.act(img_2_world([j,i,depth[i,j]], K)))
-
-        gt_poses = {}
-        for i in scene_json[f"{im}"]:
-            gt_poses[str(i["obj_id"])] = wMc * get_se3_from_gt(i)
-
-        Xy = np.array(Xy)
-        X = Xy[:,:2]
-        y = Xy[:,2]
-
-        a, b, c, inlier_mask = fit_plane(X, y)
-        se3_floor = pin.SE3(*plane_to_se3(a,b,c))
-        se3_floor = {"R":se3_floor.rotation.tolist(), "t":se3_floor.translation.tolist()}
-
-        floor_se3s[scene] = se3_floor
-
-        with open("eval/data/hope_bop_floor_poses_1mm_res_one_per_scene.json", "w") as f:
-            json.dump(floor_se3s, f)
-        
-    return floor_se3s
-
-
-def draw_pc(vis, depth, K, se3_floor):
-    """
-    Draws point cloud and floor plane of scene.
-    Inputs:
-        vis: meshcat visualizer
-        depth: loaded depth map
-        K: camera matrix
-        se3_floor: pose of the floor
-    Returns:
-    """
-
-    Xy = []
-    for i in range(depth.shape[0]):
-        for j in range(depth.shape[1]):
-            if depth[i,j] > 1e-3:
-                Xy.append(img_2_world([j,i,depth[i,j]], K))
-    Xy = np.array(Xy)
-    Xy /= 1000
-    for i in range(len(Xy)):
-        if i % 50 != 0:
-            continue
-        se3 = pin.SE3.Identity()
-        se3.translation = Xy[i]
-        renderPoint(vis, Xy[i], f"point_{i}", color=np.array([144, 169, 183, 255]) / 255, radius_point=3e-3)
-
-    loader = hppfcl.MeshLoader()
-    path = str(FLOOR_MESH_PATH)
-    mesh: hppfcl.BVHModelBase = loader.load(path, scale=np.array([1]*3))
-    shape = pin.visualize.meshcat_visualizer.loadMesh(mesh)
-    draw_shape(vis, shape, "plane", se3_floor, np.array([170, 236, 149, 255]) / 255)
-
-def draw_pc_and_objects(ds_name: str):
-    with open(FLOOR_POSES_PATH / "hope_bop_floor_poses_1mm_res.json", "r") as f:
-        floor_se3s = json.load(f)
-    rigid_objects = load_meshes(MESHES_PATH / ds_name, convex=False)
-    vis = create_visualizer()
-    for scene in floor_se3s:
-        with open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "scene_gt.json", "r") as f:
-            gt = json.load(f)
-        for im in floor_se3s[scene]:
-            print(scene, im)
-            with open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "scene_camera.json", "r") as f:
-                cam_json = json.load(f)
-                K = np.array(cam_json[im]["cam_K"]).reshape(3,3)
-            gt_poses = {}
-            for obj in gt[im]:
-                gt_poses[obj["obj_id"]] = pin.SE3(np.array(obj["cam_R_m2c"]).reshape(3,3), np.array(obj["cam_t_m2c"])/1000)
-            depth = np.array(Image.open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "depth" / f"{int(im):06d}.png"))
-            for i in range(len(rigid_objects)):
-                if (DATASETS_PATH / ds_name / f"{int(scene):06d}" / "mask" / f"{int(im):06d}_{i:06d}.png").is_file():
-                    mask = Image.open(DATASETS_PATH / ds_name / f"{int(scene):06d}" / "mask" / f"{int(im):06d}_{i:06d}.png")
-                    mask = np.array(mask) !=  0
-                    mask = ndimage.binary_dilation(mask, iterations=10)
-                    depth[mask] = 0
-            se3_floor = floor_se3s[scene][im]
-            se3_floor = None if se3_floor is None else pin.SE3(np.array(se3_floor["R"]), np.array(se3_floor["t"]))
-            if se3_floor is not None:
-                draw_pc(vis, depth, K, se3_floor)
-                for label in gt_poses:
-                    draw_shape(vis, rigid_objects[str(label)], f"{label}", gt_poses[label], np.array([170, 236, 149, 125]) / 255)
-                print()
-            else:
-                print("No floor")
-            input("Press enter to continue")

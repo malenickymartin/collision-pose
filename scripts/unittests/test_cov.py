@@ -1,34 +1,13 @@
-import meshcat
-import pinocchio as pin
 import numpy as np
+import pinocchio as pin
+import meshcat
 
-GREEN = np.array([110, 250, 90, 200]) / 255
-RED = np.array([200, 11, 50, 100]) / 255
-
-def meshcat_material(r, g, b, a):
-    material = meshcat.geometry.MeshPhongMaterial()
-    material.color = int(r * 255) * 256 ** 2 + int(g * 255) * 256 + \
-        int(b * 255)
-    material.opacity = a
-    return material
-
-def get_ellipsoid(cov, nstd=2):
-    # https://users.cs.utah.edu/~tch/CS4640/resources/A%20geometric%20interpretation%20of%20the%20covariance%20matrix.pdf
-    eigvals, eigvecs = np.linalg.eigh(cov)
-    radii = np.sqrt(eigvals) * nstd
-    return radii, eigvecs
-
-def show_cov_ellipsoid(vis, mean, cov, ellipsoid_id=1, nstd=2):
-    radii, R_ellipsoid = get_ellipsoid(cov, nstd)
-    T_ellipsoid = pin.SE3(R_ellipsoid, mean)
-    ellipsoid_mesh = meshcat.geometry.Ellipsoid(radii)
-    vis[f"ellipsoid_{ellipsoid_id}"].set_object(ellipsoid_mesh, meshcat_material(*RED))
-    vis[f"ellipsoid_{ellipsoid_id}"].set_transform(T_ellipsoid.homogeneous)
+from src.optim_tools import change_Q_frame
+from eval.eval_utils import load_meshes, draw_shape
+from src.vis import show_cov_ellipsoid, GREEN, meshcat_material, get_ellipsoid, RED
+from config import MESHES_PATH
 
 def test_change_frame():
-    from optim import change_Q_frame
-    from eval.eval_utils import load_meshes, draw_shape
-    from config import MESHES_PATH
 
     Q = [0.0002, 0.08, 0.26]
     grid = True
@@ -67,7 +46,6 @@ def test_change_frame():
         cov_t = cov[:3, :3]
         show_cov_ellipsoid(vis, pose.translation, cov_t, i)
         draw_shape(vis, mesh, f"mesh_{i}", pose, GREEN)
-
 
 if __name__ == "__main__":
     i = int(input("Press 1 to test_change_frame, 2 to plot points and ellipsoid: "))

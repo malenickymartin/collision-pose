@@ -1,6 +1,6 @@
 import numpy as np
 import pinocchio as pin
-from optim import error_se3, error_r3_so3
+from src.optim_tools import error_se3, error_r3_so3
 
 
 def num_diff_perc(M: pin.SE3, Mm: pin.SE3, err=error_se3, exp=pin.exp6, EPS=1e-6):

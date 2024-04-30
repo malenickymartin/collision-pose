@@ -1,13 +1,14 @@
-from scene import DiffColScene, draw_scene, SelectStrategyConfig
-from eval.eval_utils import load_csv, load_meshes, load_multi_convex_meshes, load_mesh
-from config import POSES_OUTPUT_PATH, FLOOR_POSES_PATH, MESHES_PATH, MESHES_DECOMP_PATH, FLOOR_MESH_PATH
-from pydiffcol.utils_render import create_visualizer
-from pydiffcol.utils import select_strategy
-
 import numpy as np
 import json
 import pinocchio as pin
 import hppfcl
+
+from src.scene import DiffColScene, SelectStrategyConfig
+from src.vis import draw_scene
+from eval.eval_utils import load_csv, load_meshes, load_meshes_decomp, load_mesh
+from config import POSES_OUTPUT_PATH, FLOOR_POSES_PATH, MESHES_PATH, MESHES_DECOMP_PATH, FLOOR_MESH_PATH
+from pydiffcol.utils_render import create_visualizer
+from pydiffcol.utils import select_strategy
 
 dataset_name = 'ycbv'
 input_csv_name = 'gt_ycbv-test.csv'
@@ -25,7 +26,7 @@ def load_static(floor_poses_name:str):
 scenes = load_csv(POSES_OUTPUT_PATH / dataset_name / input_csv_name)
 floor_mesh, floor_se3s = load_static(floor_name)
 rigid_objects = load_meshes(MESHES_PATH / dataset_name)
-rigid_objects_decomp = load_multi_convex_meshes(MESHES_DECOMP_PATH / dataset_name)
+rigid_objects_decomp = load_meshes_decomp(MESHES_DECOMP_PATH / dataset_name)
 rigid_objects_vis = load_meshes(MESHES_PATH / dataset_name, convex=False)
 floor_mesh_vis = [load_mesh(FLOOR_MESH_PATH, convex=False)]
 

@@ -1,80 +1,12 @@
-import pickle
-from typing import List, Dict, Tuple, Union
+from typing import List, Tuple, Union
 import numpy as np
 import pinocchio as pin
-import meshcat
 import hppfcl
 import pydiffcol
 from pathlib import Path
 from dataclasses import dataclass
 
-from pydiffcol.utils import (
-    constructPolyhedralEllipsoid,
-    constructDiamond, 
-)
-
-from spatial import normalize_se3
-from eval.eval_utils import draw_shape, BLUE, GREEN
-
-
-def create_shape(shape_type: str, num_subdiv=1, path_mesh=None):
-    if shape_type == "diamond":
-        shape = constructDiamond(0.5)
-        print(f"Number vertices shape1: {shape.num_points}")
-    elif shape_type == "poly_ellipsoid":
-        r = np.array([0.1, 0.2, 0.3])
-        shape = constructPolyhedralEllipsoid(r, num_subdiv)
-        print(f"Number vertices shape1: {shape.num_points}")
-    elif shape_type == "ellipsoid":
-        r = np.array([0.1, 0.2, 0.3])
-        shape = hppfcl.Ellipsoid(r)
-    elif shape_type == "sphere":
-        r = 0.5
-        shape = hppfcl.Sphere(r)
-    elif shape_type == "poly_sphere":
-        r = np.array([0.1, 0.1, 0.1])
-        shape = constructPolyhedralEllipsoid(r, num_subdiv)
-        print(f"Number vertices shape1: {shape.num_points}")
-    elif shape_type == "mesh":
-        loader = hppfcl.MeshLoader()
-        mesh: hppfcl.BVHModelBase = loader.load(path_mesh)
-        mesh.buildCSelectStrategyConfigonvexHull(True, "Qt")
-        shape = mesh.convex
-    else:
-        raise NotImplementedError
-    return shape
-
-
-def draw_scene(vis: meshcat.Visualizer,
-               shape_lst: List[hppfcl.ShapeBase],
-               stat_shape_lst: List[hppfcl.ShapeBase],
-               wMo_lst: List[pin.SE3],
-               wMs_lst: List[pin.SE3],
-               col_res_pairs: Dict[Tuple[int,int], pydiffcol.DistanceResult],
-               col_res_pairs_stat: Dict[Tuple[int,int], pydiffcol.DistanceResult]
-               ):
-    
-    in_collision_obj = {i:False for i in range(len(shape_lst))}
-    for (id1, id2), col_dist in col_res_pairs.items():
-        col = col_dist > 0.0
-        in_collision_obj[id1] = in_collision_obj[id1] or col
-        in_collision_obj[id2] = in_collision_obj[id2] or col
-
-    in_collision_stat = {i:False for i in range(len(stat_shape_lst))}
-    for (id_obj, id_stat), col_dist in col_res_pairs_stat.items():
-        col = col_dist > 0.0
-        if id_stat not in in_collision_stat:
-            in_collision_stat[id_stat] = col
-
-        in_collision_obj[id_obj] = in_collision_obj[id_obj] or col
-        in_collision_stat[id_stat] = in_collision_stat[id_stat] or col
-
-    for i, (shape, M) in enumerate(zip(shape_lst, wMo_lst)):
-        c = BLUE if in_collision_obj[i] else GREEN
-        draw_shape(vis, shape, f"shape{i}", M, color=c)
-    for i, (shape, M) in enumerate(zip(stat_shape_lst, wMs_lst)):
-        c = BLUE if in_collision_stat[i] else GREEN
-        draw_shape(vis, shape, f"stat_shape{i}", M, color=c)
+from src.optim_tools import normalize_se3
 
 
 def get_permutation_indices(N):
@@ -90,38 +22,6 @@ def get_permutation_indices(N):
             if i != j:
                 permutations.append((i,j))
     return permutations
-
-
-def poses_equilateral(d):
-    h = np.sqrt(3) * d /2
-
-    wMo_lst = [
-        pin.XYZQUATToSE3([0,0,0, 0,0,0,1]),
-        pin.XYZQUATToSE3([d,0,0, 0,0,0,1]),
-        pin.XYZQUATToSE3([d/2,h,0, 0,0,0,1]),
-    ]
-    return wMo_lst
-
-
-def poses_tetraedron(d):
-    s2 = np.sqrt(2)
-    t_arr = d/2*np.array([
-         1,  0, -1/s2,        
-        -1,  0, -1/s2,
-         0,  1,  1/s2,
-         0, -1,  1/s2,
-    ]).reshape((4,3))
-    poses = [np.concatenate([t, [0,0,0,1]]) for t in t_arr]
-    wMo_lst = [pin.XYZQUATToSE3(pose) for pose in poses]
-    return wMo_lst
-
-
-def read_poses_pickle(path: str):
-    with open(path, 'rb') as f:
-        scene_bproc = pickle.load(f)
-    wMo_lst = [normalize_se3(pin.SE3(M)) for M in scene_bproc['wMo_lst']]
-    wMc = normalize_se3(pin.SE3(scene_bproc['wMc']))
-    return wMo_lst, wMc
 
 
 @dataclass
@@ -240,20 +140,20 @@ class DiffColScene:
             M1, M2 = normalize_se3(wMo_lst[i1]), normalize_se3(wMo_lst[i2])
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
-                max_coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
+                sum_coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
                                                                             shape2, shape2_decomp, M2, 
                                                                             col_req, col_req_diff, diffcol)
             else:
-                max_coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1,
+                sum_coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1,
                                                                             shape2, M2,
                                                                             col_req, col_req_diff, diffcol)
                 
-            if max_coll_dist > 0:
-                cost_c += max_coll_dist
-                grad[6*i1:6*i1+6] += np.exp(coll_exp_scale*max_coll_dist)*grad_1
-                grad[6*i2:6*i2+6] += np.exp(coll_exp_scale*max_coll_dist)*grad_2
+            if sum_coll_dist > 0:
+                cost_c += sum_coll_dist
+                grad[6*i1:6*i1+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1
+                grad[6*i2:6*i2+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_2
 
-            self.col_res_pairs[(i1, i2)] = max_coll_dist
+            self.col_res_pairs[(i1, i2)] = sum_coll_dist
 
         return cost_c, grad
 
@@ -285,7 +185,7 @@ class DiffColScene:
                 static_convex, wMs = self.statics_convex[i2], normalize_se3(self.wMs_lst[i2])
 
                 if len(self.shapes_decomp) == 0 and len(self.statics_decomp) == 0: # both shapes and statics are convex
-                    max_coll_dist, grad_1, _ = self.compute_diffcol_convex(shape_convex, wMo,
+                    sum_coll_dist, grad_1, _ = self.compute_diffcol_convex(shape_convex, wMo,
                                                                            static_convex, wMs,
                                                                            col_req, col_req_diff, diffcol)
                 else:
@@ -295,14 +195,14 @@ class DiffColScene:
                         shape_decomp, static_decomp = self.shapes_decomp[i1], [self.statics_convex[i2]]
                     else: # only statics are decomposed
                         shape_decomp, static_decomp = [self.shapes_convex[i1]], self.statics_decomp[i2]
-                    max_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
+                    sum_coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
                                                     static_convex, static_decomp, wMs, 
                                                     col_req, col_req_diff, diffcol)
                     
-                if max_coll_dist > 0: # if there is a collision between object and static object
-                    cost_c += max_coll_dist
-                    grad[6*i1:6*i1+6] += np.exp(coll_exp_scale*max_coll_dist)*grad_1
-                self.col_res_pairs_stat[(i1, i2)] = max_coll_dist
+                if sum_coll_dist > 0: # if there is a collision between object and static object
+                    cost_c += sum_coll_dist
+                    grad[6*i1:6*i1+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1
+                self.col_res_pairs_stat[(i1, i2)] = sum_coll_dist
 
         return cost_c, grad
     
@@ -320,7 +220,7 @@ class DiffColScene:
         - diffcol: bool
 
         Returns:
-        - max_coll_dist: float
+        - coll_dist: float
         - grad_1, grad_2: np.ndarray of shape (6,)
         """
         col_res = pydiffcol.DistanceResult()
@@ -328,20 +228,20 @@ class DiffColScene:
 
         grad_1 = np.zeros(6)
         grad_2 = np.zeros(6)
-        max_coll_dist = 0
+        coll_dist = 0
 
         _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
         if col_res.dist >= 0:
             # no collision between convex hulls
-            return max_coll_dist, grad_1, grad_2
+            return coll_dist, grad_1, grad_2
         
         if diffcol:
             pydiffcol.distance_derivatives(convex_1, M1, convex_2, M2, col_req, col_res, col_req_diff, col_res_diff)
             grad_1 = -col_res_diff.ddist_dM1
             grad_2 = -col_res_diff.ddist_dM2
-        max_coll_dist = -col_res.dist
+        coll_dist = -col_res.dist
     
-        return max_coll_dist, grad_1, grad_2
+        return coll_dist, grad_1, grad_2
 
     def compute_diffcol_decomp(
             self, convex_1: hppfcl.Convex, decomp_1: List[hppfcl.Convex], M1: pin.SE3,
@@ -359,7 +259,7 @@ class DiffColScene:
         - diffcol: bool
 
         Returns:
-        - max_coll_dist: float
+        - sum_coll_dist: float
         - grad_1, grad_2: np.array of shape (6,)
         """
         col_res = pydiffcol.DistanceResult()
@@ -367,12 +267,12 @@ class DiffColScene:
 
         grad_1 = np.zeros(6)
         grad_2 = np.zeros(6)
-        max_coll_dist = 0
+        sum_coll_dist = 0
         # TODO: implement broadphase
         _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
         if col_res.dist >= 0:
             # no collision between convex hulls
-            return max_coll_dist, grad_1, grad_2
+            return sum_coll_dist, grad_1, grad_2
         
         # check which parts of decomp_1 are in collision with convex_2
         decomp_1_in_coll = []
@@ -392,7 +292,6 @@ class DiffColScene:
             else:
                 decomp_2_in_coll.append(False)
 
-        num_colls = 0
         for i, part_1 in enumerate(decomp_1):
             if decomp_1_in_coll[i]:
                 for j, part_2 in enumerate(decomp_2):
@@ -402,25 +301,19 @@ class DiffColScene:
                             pydiffcol.distance_derivatives(part_1, M1, part_2, M2, col_req, col_res, col_req_diff, col_res_diff)
                             grad_1 += -col_res_diff.ddist_dM1
                             grad_2 += -col_res_diff.ddist_dM2
-                            num_colls += 1
-                        if col_res.dist < max_coll_dist:
-                            max_coll_dist = col_res.dist
+                        if col_res.dist < 0:
+                            sum_coll_dist += col_res.dist
 
-        if num_colls > 0:
-            grad_1 /= num_colls
-            grad_2 /= num_colls
-        max_coll_dist = -max_coll_dist
+        sum_coll_dist = -sum_coll_dist
     
-        return max_coll_dist, grad_1, grad_2
+        return sum_coll_dist, grad_1, grad_2
 
 
-    def create_mesh(self, obj_path: str):
+    def create_mesh(self, obj_path: str) -> hppfcl.Convex:
         """
         Loads mesh and creates convex hull.
-        
         Inputs:
         - obj_path: str
-
         Returns:
         - hppfcl.Convex
         """
@@ -429,10 +322,9 @@ class DiffColScene:
         return mesh.convex
 
     
-    def create_decomposed_mesh(self, dir_path: str):
+    def create_decomposed_mesh(self, dir_path: str) -> List[hppfcl.Convex]:
         """
         Iterates through given directory with convex decompositions and creates a list of convex shapes.
-
         Inputs:
         - dir_path: str
 

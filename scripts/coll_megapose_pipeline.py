@@ -28,13 +28,14 @@ from happypose.toolbox.utils.conversion import convert_scene_observation_to_pand
 from happypose.toolbox.utils.load_model import NAMED_MODELS, load_named_model
 from happypose.toolbox.visualization.bokeh_plotter import BokehPlotter
 from happypose.toolbox.visualization.utils import make_contour_overlay
+from happypose.toolbox.detector.object_detection import get_bboxes
 
 # CollisionPose
-from run_optim import optim
-from scene import DiffColScene, SelectStrategyConfig
+from src.optimizer import three_phase_optim
+from src.scene import DiffColScene, SelectStrategyConfig
 import pydiffcol
 from pydiffcol.utils import select_strategy
-from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam
+from config import MESHES_PATH, MESHES_DECOMP_PATH, FLOOR_MESH_PATH, DATASETS_PATH
 
 class CollisionResolver:
     """
@@ -50,17 +51,15 @@ class CollisionResolver:
     def __init__(self, meshes_dir: Path, meshes_decomp_dir: Union[Path, None] = None,
                  static_meshes_dir: Union[Path, None] = None, static_meshes_decomp_dir: Union[Path, None] = None,
                  params: Union[Dict[str, Union[str,int,List]], None] = None):
-        self.args = SelectStrategyConfig(1e-2, 100)
+        self.args = SelectStrategyConfig(1e-1, 50, 2, "first_order_gaussian")
         self.col_req, self.col_req_diff = select_strategy(self.args)
         self.params = params
-        self.meshes, self.meshes_decomp, self.stat_meshes, self.stat_meshes_decomp = self.load_meshes(meshes_dir, meshes_decomp_dir, static_meshes_dir, static_meshes_decomp_dir)
+        self.meshes, self.meshes_decomp, self.stat_meshes, self.stat_meshes_decomp, self.meshes_vis, self.stat_meshes_vis = self.load_meshes(meshes_dir, meshes_decomp_dir, static_meshes_dir, static_meshes_decomp_dir)
         
-
-    def create_mesh(self, mesh_loader: hppfcl.MeshLoader, obj_path: str) -> hppfcl.Convex:
-        mesh = mesh_loader.load(obj_path, np.array(3*[0.001]))
+    def create_mesh(self, mesh_loader: hppfcl.MeshLoader, obj_path: str, scale=0.001) -> hppfcl.Convex:
+        mesh = mesh_loader.load(obj_path, np.array(3*[scale]))
         mesh.buildConvexHull(True, "Qt")
         return mesh.convex
-
 
     def create_decomposed_mesh(self, mesh_loader: hppfcl.MeshLoader, dir_path: str) -> List[hppfcl.Convex]:
         meshes = []
@@ -71,7 +70,11 @@ class CollisionResolver:
                 meshes.append(mesh.convex)
         return meshes
     
-
+    def create_vis_mesh(self, mesh_loader: hppfcl.MeshLoader, obj_path: str) -> hppfcl.Convex:
+        mesh = mesh_loader.load(obj_path, np.array(3*[0.001]))
+        mesh = pin.visualize.meshcat_visualizer.loadMesh(mesh)
+        return mesh
+    
     def load_meshes(
             self, meshes_dir: Path, meshes_decomp_dir: Union[Path, None],
             static_meshes_dir: Union[Path, None], static_meshes_decomp_dir: Union[Path, None]
@@ -90,6 +93,8 @@ class CollisionResolver:
         - mesh_objs_dict_decomposed: dict with keys as object labels (str) and values as list of fcl.Convex objects
         - mesh_stat_dict: dict with keys as object labels (str) and values as fcl.Convex objects
         - mesh_stat_dict_decomposed: dict with keys as object labels (str) and values as list of fcl.Convex objects
+        - mesh_objs_dict_vis: dict with keys as object labels (str) and values as fcl.Convex objects
+        - mesh_stat_dict_vis: dict with keys as object labels (str) and values as fcl.Convex objects
         """
         mesh_loader = hppfcl.MeshLoader()
 
@@ -107,11 +112,18 @@ class CollisionResolver:
                 mesh_label = str(mesh_dir_path.name)
                 mesh_objs_dict_decomposed[mesh_label] = self.create_decomposed_mesh(mesh_loader, str(mesh_dir_path))
 
+        print("Loading visual meshes...")
+        mesh_objs_dict_vis = {}
+        for mesh_dir_path in meshes_dir.iterdir():
+            mesh_label = str(mesh_dir_path.name)
+            mesh_path = mesh_dir_path / f"obj_{int(mesh_label):06d}.ply"
+            mesh_objs_dict_vis[mesh_label] = self.create_vis_mesh(mesh_loader, str(mesh_path))
+
         mesh_stat_dict = {}
         if static_meshes_dir is not None:
             print("Loading static meshes...")
             if static_meshes_dir.is_file():
-                mesh_stat_dict[static_meshes_dir.stem] = self.create_mesh(mesh_loader, str(static_meshes_dir))
+                mesh_stat_dict[static_meshes_dir.stem] = self.create_mesh(mesh_loader, str(static_meshes_dir), 0.003)
             else:
                 for mesh_dir_path in static_meshes_decomp_dir.iterdir():
                     mesh_label = str(mesh_dir_path.name)
@@ -125,8 +137,18 @@ class CollisionResolver:
                 mesh_label = str(mesh_dir_path.name)
                 mesh_stat_dict_decomposed[mesh_label] = self.create_decomposed_mesh(mesh_loader, str(mesh_dir_path))
 
-        return mesh_objs_dict, mesh_objs_dict_decomposed, mesh_stat_dict, mesh_stat_dict_decomposed
+        mesh_stat_dict_vis = {}
+        if static_meshes_dir is not None:
+            print("Loading visual static meshes...")
+            if static_meshes_dir.is_file():
+                mesh_stat_dict_vis[static_meshes_dir.stem] = self.create_vis_mesh(mesh_loader, str(static_meshes_dir))
+            else:
+                for mesh_dir_path in static_meshes_decomp_dir.iterdir():
+                    mesh_label = str(mesh_dir_path.name)
+                    mesh_path = mesh_dir_path / f"obj_{int(mesh_label):06d}.ply"
+                    mesh_stat_dict_vis[mesh_label] = self.create_vis_mesh(mesh_loader, str(mesh_path))
 
+        return mesh_objs_dict, mesh_objs_dict_decomposed, mesh_stat_dict, mesh_stat_dict_decomposed, mesh_objs_dict_vis, mesh_stat_dict_vis
 
     def run_optim_inference(self, poses: Dict[str, pin.SE3], static_poses: Union[Dict[str, pin.SE3], None] = None,
                             save_path: Path = None, visualize: bool = False) -> Dict[str, pin.SE3]:
@@ -142,27 +164,40 @@ class CollisionResolver:
         Returns:
         - final_poses: dict with keys as object labels (str) and values as SE3 poses (pin.SE3)
         """
+        print("Running optimization...")
         curr_meshes = []
         curr_meshes_decomp = []
+        if visualize:
+            curr_meshes_vis = []
+        else: 
+            curr_meshes_vis = None
         wMo_lst = []
         labels = list(poses.keys())
         for label in labels:
             curr_meshes.append(self.meshes[label])
+            if visualize:
+                curr_meshes_vis.append(self.meshes_vis[label])
             if len(self.meshes_decomp) > 0:
                 curr_meshes_decomp.append(self.meshes_decomp[label])
             wMo_lst.append(poses[label])
         curr_static_meshes = []
         curr_static_meshes_decomp = []
+        if visualize:
+            curr_static_meshes_vis = []
+        else:
+            curr_static_meshes_vis = None
         wMs_lst = []
         if static_poses is not None:
             static_labels = list(static_poses.keys())
             for label in static_labels:
                 curr_static_meshes.append(self.stat_meshes[label])
+                if visualize:
+                    curr_static_meshes_vis.append(self.stat_meshes_vis[label])
                 if len(self.stat_meshes_decomp) > 0:
                     curr_static_meshes_decomp.append(self.stat_meshes_decomp[label])
                 wMs_lst.append(static_poses[label])
         dc_scene = DiffColScene(curr_meshes, curr_static_meshes, wMs_lst, curr_meshes_decomp, curr_static_meshes_decomp, pre_loaded_meshes=True)
-        X = optim(dc_scene, wMo_lst, self.col_req, self.col_req_diff, self.params, visualize)
+        X = three_phase_optim(dc_scene, wMo_lst, self.col_req, self.col_req_diff, self.params, curr_meshes_vis, curr_static_meshes_vis)
 
         final_poses = {}
         for se3, label in zip(X, labels):
@@ -356,24 +391,23 @@ class MegaposePredictor:
 
 
 def example():
-    data_dir = Path("eval/data/")
+    ds_name = "ycbv"
 
     # MEGAPOSE CLASS
-    meshes_dir = data_dir / "meshes/hope"
+    meshes_dir = MESHES_PATH / ds_name
     camera_data = {
         "K": [[1390.53, 0.0, 964.957], [0.0, 1386.99, 522.586], [0.0, 0.0, 1.0]],
         "resolution": [1080, 1920]
     }
     megapose = MegaposePredictor(meshes_dir, "megapose-1.0-RGB", camera_data)
     # MEGAPOSE INFERENCE
-    rgb = np.array(Image.open(data_dir / f"datasets/hope/000001/rgb/000000.png"), dtype=np.uint8)
+    rgb = np.array(Image.open(DATASETS_PATH / ds_name / "000048/rgb/000001.png"), dtype=np.uint8)
     detections = [{"bbox_modal": [728, 819, 728+231, 819+260], "visib_fract": 1.0, "label": "16"}]
-    save_dir = data_dir / "test_output"
+    save_dir = DATASETS_PATH / "test_output" / "000048"
     poses = megapose.run_megapose_inference(rgb, detections, save_dir=save_dir)
     # DIFFCOL CLASS
-    meshes_dir = data_dir / "meshes"
-    meshes_decomp_dir = data_dir / "meshes_decomp"
-    static_meshes_dir = Path("eval/data/floor.ply")
+    meshes_decomp_dir = MESHES_DECOMP_PATH / ds_name
+    static_meshes_dir = FLOOR_MESH_PATH
     diffcol = CollisionResolver(meshes_dir, meshes_decomp_dir, static_meshes_dir)
     # DIFFCOL INFERENCE
     static_pose = pin.SE3(np.eye(4))
@@ -389,7 +423,41 @@ def example():
     print(errors)
     return poses_optimized
 
+def robotic_experiment():
+    #LOAD DATA
+    data_dir = Path("collision-pose/robotic_experiment/")
+    data_dir.mkdir(exist_ok=True)
+    with open(data_dir / "panda_data.json") as f:
+        panda_data = json.load(f)
+    ds_name = panda_data["ds_name"]
+    im = np.array(Image.open(data_dir / panda_data["image_name"]), dtype=np.uint8)
+    camera_data = {"K": panda_data["K"], "resolution": panda_data["resolution"]}
+    static_pose = pin.SE3(np.array(panda_data["table_pose"]))
 
+    #DEFINE PATHS
+    meshes_path = MESHES_PATH / ds_name
+    meshes_decomp_path = MESHES_DECOMP_PATH / ds_name
+
+    #MEGAPOSE INFERENCE
+    bbox, label = get_bboxes(im, camera_data)
+    if bbox == None:
+        with open(data_dir / "poses_optimized.json", "w") as f:
+            json.dump({}, f)
+        return
+    detections = [{"bbox_modal": bbox, "visib_fract": 1.0, "label": label}]
+    megapose = MegaposePredictor(meshes_path, "megapose-1.0-RGB", camera_data)
+    poses = megapose.run_megapose_inference(im, detections, save_dir=data_dir)
+    
+    #DIFFCOL INFERENCE
+    diffcol = CollisionResolver(meshes_path, meshes_decomp_path, FLOOR_MESH_PATH)
+    static_poses = {"floor": static_pose}
+    poses_optimized = diffcol.run_optim_inference(poses, static_poses, save_path=None, visualize=False)
+
+    #SAVE DATA
+    poses_optimized = {"collision" :{label: poses_optimized[label].homogeneous.tolist() for label in poses_optimized.keys()},
+                       "megapose": {label: poses[label].homogeneous.tolist() for label in poses.keys()}}
+    with open(data_dir / "poses_optimized.json", "w") as f:
+        json.dump(poses_optimized, f)
 
 if __name__ == "__main__":
-    example()
+    robotic_experiment()

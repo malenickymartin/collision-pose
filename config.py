@@ -3,7 +3,7 @@ from pathlib import Path
 
 PROJECT_PATH = Path(os.path.realpath(__file__)).parent
 
-EVAL_DATA_PATH = PROJECT_PATH / "eval" / "data"
+EVAL_DATA_PATH = PROJECT_PATH / "data"
 
 MESHES_PATH = EVAL_DATA_PATH / "meshes"
 MESHES_DECOMP_PATH = EVAL_DATA_PATH / "meshes_decomp"

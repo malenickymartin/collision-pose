@@ -1,8 +1,12 @@
+import sys
 import coacd
 import trimesh
 from config import MESHES_PATH, MESHES_DECOMP_PATH
 
-dataset_name = input("Enter the dataset name: ")
+if len(sys.argv) > 1:
+    dataset_name = sys.argv[1]
+else:
+    dataset_name = input("Enter the dataset name: ")
 
 source_path = MESHES_PATH / dataset_name
 destination_path = MESHES_DECOMP_PATH / dataset_name

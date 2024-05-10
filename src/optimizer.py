@@ -109,7 +109,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     if not params["g_grad_scale"]:
         cost_c_obj, _ = dc_scene.compute_diffcol(wMo_lst_init, col_req, col_req_diff, diffcol=False)
         cost_c_stat, _ = dc_scene.compute_diffcol_static(wMo_lst_init, col_req, col_req_diff, diffcol=False)
-        if cost_c_obj + cost_c_stat < 1e-3:
+        if np.sum(cost_c_obj) + np.sum(cost_c_stat) < 1e-3:
             print("No collision detected, no need to optimize")
             return wMo_lst_init
 
@@ -135,6 +135,10 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     lr_decay = params["step_lr_decay"]
     lr_freq = params["step_lr_freq"]
     method = params["method"]
+
+    diffcol_flag = True
+    if coll_grad_scale == 0:
+        diffcol_flag = False
 
     # Momentum param MGD, NGD
     if method in ['MGD', 'NGD']:
@@ -172,17 +176,17 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             X_eval = X
 
         # Compute obj-obj collision gradients
-        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff, coll_exp_scale)
+        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff, coll_exp_scale, diffcol=diffcol_flag)
 
         # Compute obj-static collision gradients
         if len(dc_scene.statics_convex) > 0:
-            cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff, coll_exp_scale)
+            cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff, coll_exp_scale, diffcol=diffcol_flag)
         else:
-            cost_c_stat, grad_c_stat = 0.0, np.zeros(6*N_SHAPES)
+            cost_c_stat, grad_c_stat = 0, np.zeros(6*N_SHAPES)
 
         # Compute gravity gradient
         if g_grad_scale and len(dc_scene.statics_convex) > 0:
-            grad_g = dc_scene.compute_gravity(X_eval, grad_c_stat, grad_c_obj)
+            grad_g = dc_scene.compute_gravity(X_eval, cost_c_stat, cost_c_obj)
         else:
             grad_g = np.zeros(6*N_SHAPES)
 
@@ -216,8 +220,8 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         # Logs
         if visualize:
             X_lst.append(deepcopy(X))
-            cost_c_lst.append(cost_c_obj)
-            cost_c_stat_lst.append(cost_c_stat)
+            cost_c_lst.append(np.sum(cost_c_obj))
+            cost_c_stat_lst.append(np.sum(cost_c_stat))
             grad_c_norm.append(norm(grad_c_obj))
             grad_c_stat_norm.append(norm(grad_c_stat))
             

@@ -91,7 +91,7 @@ class DiffColScene:
                 self.statics_decomp.append(self.create_decomposed_mesh(path))
             print("Meshes loaded.")
 
-    def compute_gravity(self, wMo_lst: List[pin.SE3], grad_c_stat: np.ndarray, grad_c_obj: np.ndarray) -> np.ndarray:
+    def compute_gravity(self, wMo_lst: List[pin.SE3], cost_c_stat: np.ndarray, cost_c_obj: np.ndarray) -> np.ndarray:
         """
         Compute gravity vector for all objects.
 
@@ -109,7 +109,7 @@ class DiffColScene:
         grad = np.zeros(6*N)
         g_o_rot = np.zeros(3)
         for i in range(N):
-            if np.allclose(grad_c_stat[6*i:6*(i+1)], 0, atol=1e-6) and np.allclose(grad_c_obj[6*i:6*(i+1)], 0, atol=1e-6):
+            if cost_c_stat[i] < 1e-6 and cost_c_obj[i] < 1e-6:
                 g_o_trans = wMo_lst[i].rotation.T @ g_c
                 grad[6*i:6*(i+1)] = np.concatenate([g_o_trans, g_o_rot])
         return grad
@@ -133,7 +133,7 @@ class DiffColScene:
         N = len(wMo_lst)
         index_pairs = get_permutation_indices(N)
         grad = np.zeros(6*N)
-        cost_c = 0.0
+        cost_c = np.zeros(N)
 
         for i1, i2 in index_pairs:
             shape1, shape2 = self.shapes_convex[i1], self.shapes_convex[i2] 
@@ -149,7 +149,8 @@ class DiffColScene:
                                                                             col_req, col_req_diff, diffcol)
                 
             if sum_coll_dist > 0:
-                cost_c += sum_coll_dist
+                cost_c[i1] += sum_coll_dist
+                cost_c[i2] += sum_coll_dist
                 grad[6*i1:6*i1+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1
                 grad[6*i2:6*i2+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_2
 
@@ -177,7 +178,7 @@ class DiffColScene:
         N = len(wMo_lst)
         M = len(self.wMs_lst)
         grad = np.zeros(6*N)
-        cost_c = 0.0
+        cost_c = np.zeros(N)
 
         for i1 in range(N):
             for i2 in range(M):
@@ -200,7 +201,7 @@ class DiffColScene:
                                                     col_req, col_req_diff, diffcol)
                     
                 if sum_coll_dist > 0: # if there is a collision between object and static object
-                    cost_c += sum_coll_dist
+                    cost_c[i1] += sum_coll_dist
                     grad[6*i1:6*i1+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1
                 self.col_res_pairs_stat[(i1, i2)] = sum_coll_dist
 

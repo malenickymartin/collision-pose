@@ -220,6 +220,8 @@ def load_csv(mp_pred_path):
             scene_id = int(pred[0])
             im_id = int(pred[1])
             obj_id = pred[2]
+            score = float(pred[3])
+            time = float(pred[6])
             R = np.reshape([float(n) for n in (pred[4].split(" "))], (3,3))
             t = np.array([float(n) for n in (pred[5].split(" "))])/1000
             if scene_id in scenes:
@@ -227,10 +229,12 @@ def load_csv(mp_pred_path):
                     scenes[scene_id][im_id]["R"].append(R)
                     scenes[scene_id][im_id]["t"].append(t)
                     scenes[scene_id][im_id]["obj_id"].append(obj_id)
+                    scenes[scene_id][im_id]["score"].append(score)
+                    scenes[scene_id][im_id]["time"].append(time)
                 else:
-                    scenes[scene_id][im_id] = {"R":[R], "t":[t], "obj_id":[obj_id]}
+                    scenes[scene_id][im_id] = {"R":[R], "t":[t], "obj_id":[obj_id], "score":[score], "time":[time]}
             else:
-                scenes[scene_id] = {im_id:{"R":[R], "t":[t], "obj_id":[obj_id]}}
+                scenes[scene_id] = {im_id:{"R":[R], "t":[t], "obj_id":[obj_id], "score":[score], "time":[time]}}
     return scenes
 
 

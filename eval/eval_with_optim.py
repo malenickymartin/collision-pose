@@ -119,7 +119,7 @@ def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, v
         rigid_objects_vis = load_meshes(MESHES_PATH / dataset_name, convex=False)
         curr_meshes_vis = [load_mesh(FLOOR_MESH_PATH, convex=False)]
     else:
-        curr_meshes_vis = None
+        curr_meshes_vis = []
 
     optimized_floor = {}
 
@@ -131,10 +131,7 @@ def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, v
             curr_stat_meshes = []
             curr_stat_meshes_decomp = []
             wMs_lst = []
-            if vis:
-                curr_meshes_stat_vis = []
-            else:
-                curr_meshes_stat_vis = None
+            curr_meshes_stat_vis = []
             # Load info about each object in the scene
             for obj in gt_poses_all[im]:
                 wMs_lst.append(pin.SE3(np.array(obj["cam_R_m2c"]).reshape(3,3), np.array(obj["cam_t_m2c"])/1000))
@@ -194,23 +191,19 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
     if vis and use_floor != None:
         floor_mesh_vis = [load_mesh(FLOOR_MESH_PATH, convex=False)]
     else:
-        floor_mesh_vis = None
-    args = SelectStrategyConfig(1e-1, 50, 2, "first_order_gaussian")
+        floor_mesh_vis = []
+    args = SelectStrategyConfig(params['noise'], params['gauss_samples'], params["max_neighbors_search_level"], "first_order_gaussian")
     pydiffcol.set_seed(0)
     col_req, col_req_diff = select_strategy(args)
 
     with open(POSES_OUTPUT_PATH / dataset_name / output_csv_name, "w") as f:
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
-
     for scene in tqdm(scenes):
         for im in tqdm(scenes[scene]):
             curr_labels = []
             curr_meshes = []
             curr_meshes_decomp = []
-            if vis:
-                curr_meshes_vis = []
-            else:
-                curr_meshes_vis = None
+            curr_meshes_vis = []
             wMo_lst = []
             # Load info about each object in the scene
             for label, R_o, t_o in zip(scenes[scene][im]["obj_id"], scenes[scene][im]["R"], scenes[scene][im]["t"]):
@@ -246,26 +239,19 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
 if __name__ == "__main__":
     params = {
         "N_step": 1000,
-        "g_grad_scale": 2,
-        "coll_grad_scale": 2,
+        "g_grad_scale": 1,
+        "coll_grad_scale": 1,
         "coll_exp_scale": 0,
         "learning_rate": 0.0001,
         "step_lr_decay": 1,
         "step_lr_freq": 1000,
         "std_xy_z_theta": [0.05, 0.49, 0.26],
         "method": "GD",
-        "method_params": None
+        "method_params": None,
+        "noise": 1,
+        "gauss_samples": 100,
+        "max_neighbors_search_level": 1
     }
-
-    params_try = [{"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
-                   "method": "GD", "method_params": None, "coll_exp_scale": 0},
-                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 0, "learning_rate": 0.0001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
-                    "method": "GD", "method_params": None, "coll_exp_scale": 100},
-                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.01, "step_lr_decay": 0.75, "step_lr_freq": 100, "std_xy_z_theta": [0.05, 0.49, 0.26],
-                    "method": "GD", "method_params": None, "coll_exp_scale": 100},
-                  {"N_step": 1000, "g_grad_scale": 2, "coll_grad_scale": 2, "learning_rate": 0.0001, "step_lr_decay": 1, "step_lr_freq": 1000, "std_xy_z_theta": [0.05, 0.49, 0.26],
-                    "method": "GD", "method_params": None, "coll_exp_scale": 100},
-                  ]
     
     floor_file_names = {"hopevideo":"hope_bop_floor_poses_1mm_res_optimized.json",
                         "tless":"tless_bop_floor_poses_1mm_res_optimized.json",
@@ -286,7 +272,6 @@ if __name__ == "__main__":
     #dataset_name = dataset_names[int(sys.argv[1])]
     dataset_name = "ycbv"
     #params = params_try[int(sys.argv[2])]
-    params = params_try[0]
     #floor_name = floor_names[int(sys.argv[3])]
     floor_name = floor_names[0]
 

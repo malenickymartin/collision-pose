@@ -19,11 +19,13 @@ def change_Q_frame(var_xy_z_theta: List, M: pin.SE3) -> np.ndarray:
     rot_c_o = M.rotation
 
     var_xy, var_z, var_theta = var_xy_z_theta
-
     cov_trans_cp = np.diag([var_xy, var_xy, var_z])
-    t_o_norm = t_c_o/np.linalg.norm(t_c_o)
-    v = np.cross([0, 0, 1], t_o_norm)
-    ang = np.arccos(np.dot([0, 0, 1], t_o_norm))
+
+    t_c_o_norm = np.linalg.norm(t_c_o)
+    if t_c_o_norm > 1e-6:
+        t_c_o = t_c_o/t_c_o_norm
+    v = np.cross([0, 0, 1], t_c_o)
+    ang = np.arccos(np.dot([0, 0, 1], t_c_o))
     v_norm = np.linalg.norm(v)
     if v_norm > 1e-6:
         v = v/v_norm

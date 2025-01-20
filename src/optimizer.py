@@ -26,7 +26,7 @@ from src.vis import show_cov_ellipsoid
 def three_phase_optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
                       col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
                       params: Union[Dict[str, Union[str,int,List]], None] = None,
-                      vis_meshes: Union[List, None] = None, vis_meshes_stat: Union[List, None] = None) -> List[pin.SE3]:
+                      vis_meshes: List = [], vis_meshes_stat: List = []) -> List[pin.SE3]:
     """
     Optimize the poses of the objects in the scene.
     The optimization is done in three phases: first without gravity only with collisions, then with gravity, and again only with collisions.
@@ -64,7 +64,7 @@ def three_phase_optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
 def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
           col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
           params: Union[Dict[str, Union[str,int,List]], None] = None,
-          vis_meshes: Union[List, None] = None, vis_meshes_stat: Union[List, None] = None) -> List[pin.SE3]:
+          vis_meshes: List = [], vis_meshes_stat: List = []) -> List[pin.SE3]:
     """
     Optimize the poses of the objects in the scene to minimize the collision, perception and gravity costs.
 
@@ -114,7 +114,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             return wMo_lst_init
 
     # Logs
-    visualize = vis_meshes is not None
+    visualize = len(vis_meshes) > 0
     if visualize:
         cost_c_lst, grad_c_norm = [], []
         cost_c_stat_lst, grad_c_stat_norm = [], []

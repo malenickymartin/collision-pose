@@ -182,7 +182,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         if len(dc_scene.statics_convex) > 0:
             cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X_eval, col_req, col_req_diff, coll_exp_scale, diffcol=diffcol_flag)
         else:
-            cost_c_stat, grad_c_stat = 0, np.zeros(6*N_SHAPES)
+            cost_c_stat, grad_c_stat = np.zeros(N_SHAPES), np.zeros(6*N_SHAPES)
 
         # Compute gravity gradient
         if g_grad_scale and len(dc_scene.statics_convex) > 0:

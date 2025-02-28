@@ -256,23 +256,23 @@ def eval_csv(path_scenes: Path, csv_names: list, path_csv: Path,
                 print(f"Average depth of collision in between objects is {1000*obj_coll_dist/obj_colls} mm.")
                 print(f"Number of collisions is {obj_colls}. That is average of {obj_colls/num_images} per image.")
     
-    range_min = min([min(dists) for dists in all_dists])
-    plt.hist(all_dists, bins=500, range=(range_min, 0.1), label=csv_names, histtype="step")
-    plt.xlabel("Distance [m]")
-    plt.ylabel("Frequency of occurence")
-    plt.grid(True)
-    plt.title(f"Histogram of object pair distances for {path_scenes.name} dataset")
-    plt.legend()
-    plt.show()
+    # range_min = min([min(dists) for dists in all_dists])
+    # plt.hist(all_dists, bins=500, range=(range_min, 0.1), label=csv_names, histtype="step")
+    # plt.xlabel("Distance [m]")
+    # plt.ylabel("Frequency of occurence")
+    # plt.grid(True)
+    # plt.title(f"Histogram of object pair distances for {path_scenes.name} dataset")
+    # plt.legend()
+    # plt.show()
 
-    range_min = min([min(dists) for dists in all_dists_floor])
-    plt.hist(all_dists_floor, bins=500, range=(range_min, 0.1), label=csv_names, histtype="step")
-    plt.xlabel("Distance [m]")
-    plt.ylabel("Frequency of occurence")
-    plt.grid(True)
-    plt.title(f"Histogram of object-floor distances for {path_scenes.name} dataset")
-    plt.legend()
-    plt.show()
+    # range_min = min([min(dists) for dists in all_dists_floor])
+    # plt.hist(all_dists_floor, bins=500, range=(range_min, 0.1), label=csv_names, histtype="step")
+    # plt.xlabel("Distance [m]")
+    # plt.ylabel("Frequency of occurence")
+    # plt.grid(True)
+    # plt.title(f"Histogram of object-floor distances for {path_scenes.name} dataset")
+    # plt.legend()
+    # plt.show()
 
 def eval_csv_floor_non_decomp(dataset_name):
     """
@@ -389,10 +389,11 @@ if __name__ == "__main__":
         eval_bproc(path_mp_outputs, path_bp_gt, path_meshes, floor, vis)
     elif eval == 1:
         #EVAL COLLISIONS ON BOP (MEDERICS MEGAPOSE INFERENCE OF BOP YCBV)
-        ds_name = "tlessone" # <= INPUT
-        floor_name = "tless_one_synt_floor_gt.json" #None # or string # <= INPUT
-        csv_names = ["refiner-final_tlessone-test.csv",
-                     "gravity-2-001-075-50-01-0245-051-gt_tlessone-test.csv"] # <= INPUT
+        ds_name = "ycbv" # <= INPUT
+        floor_name = "ycbv_bop_floor_poses_1mm_res_optimized.json" #None # or string # <= INPUT
+        csv_names = ["new_build/fd-1-1-00001-1-1000-005-049-026-0-optimized_ycbv-test.csv",
+                     "coop-f3dt2d-5-hypo_ycbv-test.csv"] # <= INPUT
+        csv_names = ["bop_submissions/hcceposebf-2024-default-2d-bbox_ycbv-test.csv", "bop_submissions/freezev21_ycbv-test.csv"]
         
         meshes_ds_name = ""
         if ds_name[:4] == "ycbv":

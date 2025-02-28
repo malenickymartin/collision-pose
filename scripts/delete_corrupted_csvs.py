@@ -2,7 +2,7 @@ import csv
 from config import POSES_OUTPUT_PATH
 
 mp_path = POSES_OUTPUT_PATH / "tless" / "refiner-final-filtered_tless-test.csv"
-test_dir_path = POSES_OUTPUT_PATH / "tless" / "final-fog"
+test_dir_path = POSES_OUTPUT_PATH / "tless" / "new_build"
 
 mp_lines = 0
 deleted_files = 0

@@ -186,6 +186,7 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
     if vis:
         rigid_objects_vis = load_meshes(MESHES_PATH / meshes_ds_name, convex=False)
     scenes = load_csv(POSES_OUTPUT_PATH / dataset_name / input_csv_name)
+    scenes_gt = load_csv(POSES_OUTPUT_PATH / dataset_name / f"gt_{dataset_name}-test.csv")     ############################################## ONLY FOR VISUALIZATION
     if use_floor != None:
         floor_mesh, floor_se3s = load_static(use_floor)
     if vis and use_floor != None:
@@ -198,8 +199,43 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
 
     with open(POSES_OUTPUT_PATH / dataset_name / output_csv_name, "w") as f:
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
+
+    # ############################################# ONLY FOR VISUALIZATION
+    # ## RMC
+    # from robomeshcat import Scene, Object
+    # scene_rmc = Scene()
+    # if use_floor:
+    #     floor_rmc = Object.create_mesh(
+    #         FLOOR_MESH_PATH.parent / "floor" / "floor.obj",
+    #         scale=0.001,
+    #         texture=FLOOR_MESH_PATH.parent / "floor" / "Wood001_2K-JPG_Color.jpg",
+    #         color=[0.5] * 3,
+    #         )
+    #     scene_rmc.add_object(floor_rmc)
+    # objects_all_rmc = {}
+    # print("Loading RMC meshes")
+    # for mesh_dir_path in tqdm((MESHES_PATH / meshes_ds_name).iterdir()):
+    #     l = int(mesh_dir_path.name)
+    #     mesh_path = mesh_dir_path /f"obj_{l:06d}.ply"
+    #     texture_path = mesh_dir_path /f"obj_{l:06d}.png"
+    #     o = Object.create_mesh(
+    #         mesh_path,
+    #         scale=0.001,
+    #         texture=texture_path,
+    #         color=[1] * 3,
+    #         )
+    #     objects_all_rmc[str(l)] = o
+    # ###
+    # ############################################# ONLY FOR VISUALIZATION
+
+    with open(f"data/{dataset_name}_images_tenth.json", "r") as f: # tenth of dataset
+       tenth_images = json.load(f)
     for scene in tqdm(scenes):
         for im in tqdm(scenes[scene]):
+            # if str(scene) not in tenth_images: # tenth of dataset
+            #     continue
+            # elif im not in tenth_images[str(scene)]:
+            #     continue # tenth of dataset
             curr_labels = []
             curr_meshes = []
             curr_meshes_decomp = []
@@ -218,17 +254,82 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                 wMo_lst.append(wMo)
             if use_floor:
                 wMs = floor_se3s[str(scene)][str(im)]
-                wMs, stat_meshes = ([], []) if wMs is None else ([pin.SE3(np.array(wMs["R"]), np.array(wMs["t"]))], [floor_mesh])
-                dc_scene = DiffColScene(curr_meshes, stat_meshes, wMs, curr_meshes_decomp, pre_loaded_meshes=True)
+                has_floor = False
+                #wMs, stat_meshes = ([], []) if wMs is None else ([pin.SE3(np.array(wMs["R"]), np.array(wMs["t"]))], [floor_mesh])
+                if wMs is not None:
+                    has_floor = True
+                    wMo_lst.append(pin.SE3(np.array(wMs["R"]), np.array(wMs["t"])))
+                    curr_meshes.append(floor_mesh)
+                    curr_meshes_decomp.append([floor_mesh])
+                    curr_labels.append("floor")
+                    if vis:
+                        #floor_mesh_vis = []
+                        curr_meshes_vis.append(floor_mesh_vis[0])
+                stat_meshes = []
+                wMs = []
+                dc_scene = DiffColScene(curr_meshes, stat_meshes, wMs, curr_meshes_decomp, has_floor = has_floor, pre_loaded_meshes=True)
             else:
-                dc_scene = DiffColScene(curr_meshes, [], [], curr_meshes_decomp, pre_loaded_meshes=True)
+                dc_scene = DiffColScene(curr_meshes, [], [], curr_meshes_decomp, has_floor = False, pre_loaded_meshes=True)
             start_time = time.time()
-            if params["g_grad_scale"] == 0:
-                X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+            if True or params["g_grad_scale"] == 0:
+                X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, [])
             else:
-                X = three_phase_optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+                X = three_phase_optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, [])
             optim_time = (time.time() - start_time)
-            for i in range(len(X)):
+
+
+            # ############################################# ONLY FOR VISUALIZATION
+            # ## RMC
+            # floor_rmc.pose = np.eye(4) #wMs[0].homogeneous
+            # curr_objects_rmc = [objects_all_rmc[l] for l in curr_labels]
+            # for object_rmc in list(scene_rmc.objects.values()):
+            #     if object_rmc not in curr_objects_rmc and object_rmc != floor_rmc:
+            #         scene_rmc.remove_object(object_rmc)
+            # for curr_object_rmc in curr_objects_rmc:
+            #     if curr_object_rmc not in list(scene_rmc.objects.values()):
+            #         scene_rmc.add_object(curr_object_rmc)
+            # ### ANIMATION
+            # for X_init, obj_curr in zip(X_lst[0], curr_objects_rmc):
+            #     obj_curr.pose = (wMs[0].inverse()*X_init).homogeneous
+            # with scene_rmc.video_recording(f"{dataset_name}_{scene}_{im}.mp4", 15):
+            #     for X_lst_curr in X_lst[:len(X_lst)//4]:
+            #         for X_curr, obj_curr in zip(X_lst_curr, curr_objects_rmc):
+            #             obj_curr.pose = (wMs[0].inverse()*X_curr).homogeneous
+            #         scene_rmc.render()
+            # ## ANIMATION END
+            # if len(wMs) == 0:
+            #     continue
+            # wMo_lst_gt = [] 
+            # curr_labels_gt = []
+            # for label, R_o, t_o in zip(scenes_gt[scene][im]["obj_id"], scenes_gt[scene][im]["R"], scenes_gt[scene][im]["t"]):
+            #     R_o = np.array(R_o).reshape(3, 3)
+            #     t_o = np.array(t_o)
+            #     wMo = pin.SE3(R_o, t_o)
+            #     wMo_lst_gt.append(wMo)
+            #     curr_labels_gt.append(label)
+            # for label in curr_labels:
+            #     assert label in curr_labels_gt
+        
+            # # Add objects
+            # while True:
+            #     vis_configuration = input("Visualize configuration (i/o/g/q): ")
+            #     time.sleep(3)
+            #     if vis_configuration == "i":
+            #         for l, T in zip(curr_labels, wMo_lst):
+            #             objects_all_rmc[l].pose = (wMs[0].inverse()*T).homogeneous
+            #     elif vis_configuration == "o":
+            #         for l, T in zip(curr_labels, X):
+            #             objects_all_rmc[l].pose = (wMs[0].inverse()*T).homogeneous
+            #     elif vis_configuration == "g":
+            #         for l, T in zip(curr_labels_gt, wMo_lst_gt):
+            #             objects_all_rmc[l].pose = (wMs[0].inverse()*T).homogeneous
+            #     elif vis_configuration == "q":
+            #         break
+            # ####
+            # ############################################# ONLY FOR VISUALIZATION
+            
+            minus_table = 1 if has_floor else 0
+            for i in range(len(X)-minus_table):
                 # One CSV row
                 R = " ".join(str(item) for item in X[i].rotation.reshape(9).tolist())
                 t = " ".join(str(item) for item in (X[i].translation*1000).tolist())
@@ -238,7 +339,7 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
 
 if __name__ == "__main__":
     params = {
-        "N_step": 1000,
+        "N_step": 3000,
         "g_grad_scale": 1,
         "coll_grad_scale": 1,
         "coll_exp_scale": 0,
@@ -255,36 +356,30 @@ if __name__ == "__main__":
     
     floor_file_names = {"hopevideo":"hope_bop_floor_poses_1mm_res_optimized.json",
                         "tless":"tless_bop_floor_poses_1mm_res_optimized.json",
-                        "ycbv":"ycbv_bop_floor_poses_1mm_res_optimized.json",
+                        "ycbv":"ycbv_mast3r_two_views_pred_depth_gt_normal.json", #,"ycbv_bop_floor_poses_1mm_res_optimized.json"
                         "ycbvone":"ycbv_one_synt_floor_gt.json",
                         "tlessone":"tless_one_synt_floor_gt.json"}
     floor_names = ["optimized", "none"]
 
     input_csv_names = {"hopevideo":"refiner-final-filtered_hopevideo-test.csv",
-                       "tless":"refiner-final-filtered_tless-test.csv",
-                       "ycbv":"gt-refiner-final_ycbv-test.csv",
-                       "ycbvone":"refiner-final_ycbvone-test.csv",
-                       "tlessone":"refiner-final_tlessone-test.csv"} # INPUT
+                       "tless":"refiner-final-filtered_tless-test.csv",#,"foundpose/foundpose_tless-test.csv"
+                       "ycbv":"table_estim/test_3_new_gt_norm_wogt_detections_filtered/foundpose-wo-gt-det-filtered_ycbv-test.csv",#,"foundpose/foundpose_ycbv-test.csv"
+                       "ycbvone":"refiner-final-filtered_ycbvone-test.csv",
+                       "tlessone":"refiner-final-filtered_tlessone-test.csv"} # INPUT
     
-    dataset_names = ["hopevideo","ycbv","tless","ycbvone","tlessone"] # INPUT
-    vis = True #INPUT
+    dataset_names = ["hopevideo","ycbv","tless","ycbvone","tlessone"]
+    vis = False
 
-    #dataset_name = dataset_names[int(sys.argv[1])]
     dataset_name = "ycbv"
-    #params = params_try[int(sys.argv[2])]
-    #floor_name = floor_names[int(sys.argv[3])]
     floor_name = floor_names[0]
 
+    bop_submision_names = ["coop-filtered_tless-test.csv", "foundpose-filtered_tless-test.csv", "gigaposegenflow-filtered_tless-test.csv", "hcceposebf-filtered_tless-test.csv",
+                           "freezev-filtered_tless-test.csv"]
+    #input_csv_name = "bop_submissions/"+bop_submision_names[int(sys.argv[1])]
     input_csv_name = input_csv_names[dataset_name]
-    if floor_name == "none":
-        use_floor = None
-        if params["g_grad_scale"] != 0:
-            exit()
-    else:
-        use_floor = floor_file_names[dataset_name]
-    
 
-    output_csv_name = ("TEST/"
+    output_csv_name = (f"table_estim/test_3_new_gt_norm_wogt_detections_filtered/mast3r-two-views-pred-depth-gt-normal-foundpose-"
+                       f"fog-"
                        f"{params['g_grad_scale']}-"
                        f"{params['coll_grad_scale']}-"
                        f"{params['learning_rate']}-"
@@ -292,7 +387,16 @@ if __name__ == "__main__":
                        f"{params['step_lr_freq']}-"
                        f"{params['std_xy_z_theta'][0]}-{params['std_xy_z_theta'][1]}-{params['std_xy_z_theta'][2]}-"
                        f"{params['coll_exp_scale']}-"
+                       f"{params['noise']}-"
+                       f"{params['max_neighbors_search_level']}-"
+                       f"{params['N_step']}-"
                        f"{floor_name}_"
                        f"{dataset_name}-test").replace(".","") + ".csv"
     print(f"File name: {output_csv_name}")
+    if floor_name == "none":
+        use_floor = None
+        if params["g_grad_scale"] != 0:
+            exit()
+    else:
+        use_floor = floor_file_names[dataset_name]
     save_optimized_bop(input_csv_name, output_csv_name, dataset_name, use_floor, params, vis)

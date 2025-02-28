@@ -53,9 +53,9 @@ class DiffColScene:
             self, obj_paths: List[Union[str, hppfcl.Convex]], stat_paths: List[Union[str, hppfcl.Convex]] = [],
             wMs_lst: List[pin.SE3] = [], obj_decomp_paths: List[Union[str, List[hppfcl.Convex]]] = [],
             stat_decomp_paths: List[Union[str, List[hppfcl.Convex]]] = [], scale: float = 1.0,
-            pre_loaded_meshes: bool = False
+            has_floor:bool = True, pre_loaded_meshes: bool = False
             ) -> None:
-
+        self.has_floor = has_floor
         assert len(stat_paths) == len(wMs_lst)
         self.wMs_lst = wMs_lst
 
@@ -116,7 +116,7 @@ class DiffColScene:
 
     def compute_diffcol(self, wMo_lst: List[pin.SE3], 
                         col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-                        coll_exp_scale: int = 0, diffcol: bool = True) -> Tuple[float, np.ndarray]:
+                        coll_exp_scale: int = 0, g_grad_scale = 0, diffcol: bool = True) -> Tuple[float, np.ndarray]:
         """
         Compute diffcol for all objects.
 
@@ -134,28 +134,59 @@ class DiffColScene:
         index_pairs = get_permutation_indices(N)
         grad = np.zeros(6*N)
         cost_c = np.zeros(N)
+        is_floor = False
+        num_colls = np.zeros(N)
+        num_gravs = np.zeros(N)
+        coll_grads = [[] for _ in range(N)]
+        grav_grads = [[] for _ in range(N)]
+        cost_c_coll = np.zeros(N)
+        cost_c_grav = np.zeros(N)
 
         for i1, i2 in index_pairs:
             shape1, shape2 = self.shapes_convex[i1], self.shapes_convex[i2] 
             M1, M2 = normalize_se3(wMo_lst[i1]), normalize_se3(wMo_lst[i2])
+            is_floor = False
+            if (i1 == N-1 or i2 == N-1) and self.has_floor:
+                is_floor = True
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
                 sum_coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
                                                                             shape2, shape2_decomp, M2, 
-                                                                            col_req, col_req_diff, diffcol)
+                                                                            col_req, col_req_diff, is_floor, diffcol)
             else:
                 sum_coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1,
                                                                             shape2, M2,
                                                                             col_req, col_req_diff, diffcol)
-                
-            if sum_coll_dist > 0:
-                cost_c[i1] += sum_coll_dist
-                cost_c[i2] += sum_coll_dist
-                grad[6*i1:6*i1+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1
-                grad[6*i2:6*i2+6] += np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_2
 
-            self.col_res_pairs[(i1, i2)] = sum_coll_dist
+            self.col_res_pairs[(i1, i2)] = sum_coll_dist if sum_coll_dist > 0 else 0
 
+            if sum_coll_dist > 0:    
+                num_colls[i1] += 1
+                num_colls[i2] += 1
+                cost_c_coll[i1] += sum_coll_dist
+                cost_c_coll[i2] += sum_coll_dist
+                if diffcol:
+                    coll_grads[i1].append(np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1)
+                    coll_grads[i2].append(np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_2)
+            elif self.has_floor and sum_coll_dist < 0:
+                num_gravs[i1] += 1
+                num_gravs[i2] += 1
+                cost_c_grav[i1] += sum_coll_dist
+                cost_c_grav[i2] += sum_coll_dist
+                if diffcol:
+                    grav_grads[i1].append(np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_1)
+                    grav_grads[i2].append(np.exp(np.clip(coll_exp_scale*sum_coll_dist, None, 10))*grad_2)
+
+        for i in range(N):
+            if num_colls[i] > 0:
+                cost_c[i] = cost_c_coll[i]
+                if diffcol:
+                    grad[6*i:6*i+6] = np.sum(coll_grads[i], axis=0)/num_colls[i]
+            elif self.has_floor and num_gravs[i] > 0:
+                cost_c[i] = cost_c_grav[i]
+                if diffcol:
+                    grad[6*i:6*i+6] = g_grad_scale * np.sum(grav_grads[i], axis=0)/num_gravs[i]
+        
         return cost_c, grad
 
 
@@ -247,7 +278,7 @@ class DiffColScene:
     def compute_diffcol_decomp(
             self, convex_1: hppfcl.Convex, decomp_1: List[hppfcl.Convex], M1: pin.SE3,
             convex_2: hppfcl.Convex, decomp_2: List[hppfcl.Convex], M2: List[pin.SE3],
-            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, diffcol: bool = True
+            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest, is_floor, diffcol: bool = True
             ) -> Tuple[float, np.ndarray, np.ndarray, pydiffcol.DistanceResult, pydiffcol.DerivativeResult]:
         """
         Compute diffcol using both convex hulls and convex decomposed shapes.
@@ -271,7 +302,7 @@ class DiffColScene:
         sum_coll_dist = 0
         # TODO: implement broadphase
         _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
-        if col_res.dist >= 0:
+        if col_res.dist >= 0 and not is_floor:
             # no collision between convex hulls
             return sum_coll_dist, grad_1, grad_2
         
@@ -292,20 +323,30 @@ class DiffColScene:
                 decomp_2_in_coll.append(True)
             else:
                 decomp_2_in_coll.append(False)
+        
+        in_coll = np.any(np.array(decomp_1_in_coll)) & np.any(np.array(decomp_2_in_coll))
+        mult = -1 if is_floor and not in_coll else 1
 
+        num_colls = 0
         for i, part_1 in enumerate(decomp_1):
-            if decomp_1_in_coll[i]:
+            if (decomp_1_in_coll[i] and in_coll) or is_floor:
                 for j, part_2 in enumerate(decomp_2):
-                    if decomp_2_in_coll[j]:
+                    if (decomp_2_in_coll[j] and in_coll) or is_floor:
                         _ = pydiffcol.distance(part_1, M1, part_2, M2, col_req, col_res)
-                        if col_res.dist < 0 and diffcol:
+                        if ((col_res.dist < 0 and in_coll) or (col_res.dist >= 0 and is_floor and not in_coll)) and diffcol:
                             pydiffcol.distance_derivatives(part_1, M1, part_2, M2, col_req, col_res, col_req_diff, col_res_diff)
-                            grad_1 += -col_res_diff.ddist_dM1
-                            grad_2 += -col_res_diff.ddist_dM2
-                        if col_res.dist < 0:
-                            sum_coll_dist += col_res.dist
+                            grad_1 += -col_res_diff.ddist_dM1*mult
+                            grad_2 += -col_res_diff.ddist_dM2*mult
+                            num_colls += 1
+                        if (col_res.dist < 0 and in_coll) or (col_res.dist >= 0 and is_floor and not in_coll):
+                            sum_coll_dist += col_res.dist*mult
 
-        sum_coll_dist = -sum_coll_dist
+        sum_coll_dist = abs(sum_coll_dist)/num_colls if num_colls > 0 else 0
+        if is_floor and not in_coll:
+            sum_coll_dist = -sum_coll_dist
+        if diffcol and num_colls > 0:
+            grad_1 /= num_colls
+            grad_2 /= num_colls
     
         return sum_coll_dist, grad_1, grad_2
 

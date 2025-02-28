@@ -13,8 +13,8 @@ from eval.eval_utils import load_csv
 
 
 dataset_name = "ycbv" # <=== Input
-csvs_dir = "bop_submissions" # <=== Input
-input_csv_name = f"hcceposebf_ycbv-test.csv" # <=== Input
+csvs_dir = "table_estim/test_3_new_gt_norm_wogt_detections_filtered" # <=== Input
+input_csv_name = f"megapose-wo-gt-det_ycbv-test.csv" # <=== Input
 
 output_csv_name = input_csv_name.split("_")[0] + "-filtered_" + input_csv_name.split("_")[1]
 bop_path = Path("/local2/homes/malenma3/bop_toolkit")
@@ -39,13 +39,13 @@ def n_best_predictions(n, target_obj_id, image):
     id_scores = []
     for i, obj_id in enumerate(image["obj_id"]):
         if int(obj_id) == target_obj_id:
-            id_scores.append((i, image["score"]))
+            id_scores.append((i, image["score"][i]))
     if len(id_scores) == 0:
         return None
     id_scores.sort(key=lambda x: x[1], reverse=True)
     image_new = {key: [] for key in image}
     for key in image:
-        for i in range(n):
+        for i in range(n if n <= len(id_scores) else len(id_scores)):
             image_new[key].append(image[key][id_scores[i][0]])
     return image_new
 

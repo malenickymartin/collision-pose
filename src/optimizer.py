@@ -64,7 +64,7 @@ def three_phase_optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
 def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
           col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
           params: Union[Dict[str, Union[str,int,List]], None] = None,
-          vis_meshes: List = [], vis_meshes_stat: List = []) -> List[pin.SE3]:
+          vis_meshes: List = [], vis_meshes_stat: List = [], static_table=False) -> List[pin.SE3]:
     """
     Optimize the poses of the objects in the scene to minimize the collision, perception and gravity costs.
 
@@ -117,6 +117,9 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     visualize = len(vis_meshes) > 0
     if visualize:
         cost_c_lst, grad_c_norm = [], []
+        cost_g_lst, grad_g_norm = [], []
+        cost_p_lst, grad_p_norm = [], []
+        grad_lst = []
         cost_c_stat_lst, grad_c_stat_norm = [], []
         cost_pt_lst, cost_po_lst, grad_p_norm = [], [], []
 
@@ -176,7 +179,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             X_eval = X
 
         # Compute obj-obj collision gradients
-        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff, coll_exp_scale, diffcol=diffcol_flag)
+        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X_eval, col_req, col_req_diff, coll_exp_scale, g_grad_scale, diffcol=diffcol_flag)
 
         # Compute obj-static collision gradients
         if len(dc_scene.statics_convex) > 0:
@@ -196,6 +199,11 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         grad_c = grad_c_obj + grad_c_stat
         grad = coll_grad_scale*grad_c + grad_p + g_grad_scale * grad_g
         grad = clip_grad(grad)
+        
+        if static_table or True:
+            grad[6*(N_SHAPES-1):] = 0
+        else:
+            grad[6*(N_SHAPES-1)+3:6*(N_SHAPES-1)+6] = 0
 
         if method == 'GD':
             dx = -learning_rate*grad
@@ -219,45 +227,45 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
 
         # Logs
         if visualize:
-            X_lst.append(deepcopy(X))
-            cost_c_lst.append(np.sum(cost_c_obj))
-            cost_c_stat_lst.append(np.sum(cost_c_stat))
-            grad_c_norm.append(norm(grad_c_obj))
-            grad_c_stat_norm.append(norm(grad_c_stat))
-            
             res2cost = lambda r: 0.5*sum(r**2)
 
-            cost_pt, cost_po = res2cost(res_p.reshape((-1,2,3))[:,0].reshape(-1)), res2cost(res_p.reshape((-1,2,3))[:,1].reshape(-1))
-            cost_pt_lst.append(cost_pt)
-            cost_po_lst.append(cost_po)
+            X_lst.append(deepcopy(X))
+            cost_c_lst.append(np.sum(cost_c_obj[cost_c_obj>0]))
+            cost_g_lst.append(abs(np.sum(cost_c_obj[cost_c_obj<0])))
+            cost_p_lst.append(res2cost(res_p))
+
+            grad_c_norm.append(norm(grad_c_obj.reshape(-1,6)[cost_c_obj>0]))
+            grad_g_norm.append(norm(grad_c_obj.reshape(-1,6)[cost_c_obj<0]))
             grad_p_norm.append(norm(grad_p))
+            grad_lst.append(norm(grad))
 
     if visualize:
         steps = np.arange(len(cost_c_lst))
-        fig, ax = plt.subplots(2, 2)
-        ax[0,0].plot(steps, cost_c_lst)
-        ax[0,0].set_title('cost collision')
-        ax[1,0].plot(steps, grad_c_norm)
-        ax[1,0].set_title('grad norm collision')
-        ax[0,1].plot(steps, cost_c_stat_lst)
-        ax[0,1].set_title('cost collision static')
-        ax[1,1].plot(steps, grad_c_stat_norm)
-        ax[1,1].set_title('grad norm collision static')
+        fig, ax = plt.subplots(3, 1)
+        ax[0].plot(steps, cost_c_lst)
+        ax[0].set_title('cost collision')
+        ax[1].plot(steps, cost_g_lst)
+        ax[1].set_title('gravity cost')
+        ax[2].plot(steps, cost_p_lst)
+        ax[2].set_title('perception cost')
+        fig.suptitle('Costs')
         fig.legend()
-        fig, ax = plt.subplots(3)
-        ax[0].plot(steps, cost_pt_lst)
-        ax[0].set_ylabel('err_t [m]')
-        ax[0].set_title('cost translation')
-        ax[1].plot(steps, cost_po_lst)
-        ax[1].set_ylabel('err_o [rad]')
-        ax[1].set_title('cost orientation')
+
+        fig, ax = plt.subplots(4,1)
+        ax[0].plot(steps, grad_c_norm)
+        ax[0].set_title('collision gradient norm')
+        ax[1].plot(steps, grad_g_norm)
+        ax[1].set_title('gravity gradient norm')
         ax[2].plot(steps, grad_p_norm)
-        ax[2].set_title('grad norm perception')
+        ax[2].set_title('perception gradient norm')
+        ax[3].plot(steps, grad_lst)
+        ax[3].set_title('total gradient norm')
+        fig.suptitle('Gradient norms')
         plt.show(block=False)
         
         print('Create vis')
         input("Continue to init pose?")
-        vis = meshcat.Visualizer(zmq_url="tcp://127.0.0.1:6000")
+        vis = meshcat.Visualizer(zmq_url="tcp://127.0.0.1:6008")
         vis.delete()
         print('Init!')
         # for j in range(N_SHAPES):

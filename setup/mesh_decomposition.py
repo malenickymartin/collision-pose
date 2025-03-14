@@ -10,7 +10,8 @@ else:
 
 source_path = MESHES_PATH / dataset_name
 destination_path = MESHES_DECOMP_PATH / dataset_name
-for i in range(1, len(list(source_path.iterdir())) + 1):
+for mesh_dir in source_path.iterdir():
+    i = int(mesh_dir.name)
     input_file = str(source_path / f"{i}/obj_{i:06d}.ply")
     mesh = trimesh.load(input_file, force="mesh")
     mesh = coacd.Mesh(mesh.vertices, mesh.faces)

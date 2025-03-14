@@ -6,7 +6,7 @@ if [ $# -eq 0 ]; then
 fi
 mkdir -p eval/data/meshes
 cd eval/data/meshes
-wget -O data.zip https://bop.felk.cvut.cz/media/data/bop_datasets/${1}_models.zip
+wget -O data.zip https://huggingface.co/datasets/bop-benchmark/${1}/resolve/main/${1}_models.zip
 unzip data.zip
 rm -rf data.zip models_eval models_fine
 mv models $1

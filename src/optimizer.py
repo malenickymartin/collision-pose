@@ -53,7 +53,7 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
     # Params
     if params is None:
         params = {
-            "N_step": 1000,
+            "N_step": 3000,
             "g_grad_scale": 1,
             "coll_grad_scale": 1,
             "learning_rate": 0.0001,

@@ -273,8 +273,7 @@ def load_meshes(dataset_path, mesh_units = 0.001, convex:bool = True):
 
     rigid_objects = {}
     object_dirs = (dataset_path).iterdir()
-    for object_dir in object_dirs:
-        print(f"Loading model {object_dir.name}")
+    for object_dir in tqdm(object_dirs):
         label = object_dir.name
         mesh_path = None
         for fn in object_dir.glob("*"):
@@ -284,7 +283,6 @@ def load_meshes(dataset_path, mesh_units = 0.001, convex:bool = True):
         assert mesh_path, f"couldnt find a obj or ply mesh for {label}"
         shape = load_mesh(mesh_path, mesh_units, convex)
         rigid_objects[label] = shape
-        print(f"Model {object_dir.name} loaded.")
     return rigid_objects
 
 
@@ -315,6 +313,21 @@ def load_meshes_decomp(dataset_path, mesh_units = 0.001):
         rigid_objects[label] = new_mesh
     return rigid_objects
 
+def load_static(floor_poses_name:str):
+    """Loads floor mesh and poses from JSON file.
+    Inputs:
+        floor_poses_name: name of the JSON file with floor poses
+    Returns:
+        floor_mesh: hppfcl.ShapeBase object
+        floor_se3s: dict with floor poses, keys are image idxs, values are pinocchio.SE3 objects
+    """
+    mesh_loader = hppfcl.MeshLoader()
+    mesh = mesh_loader.load(str(FLOOR_MESH_PATH), np.array(3*[0.01]))
+    mesh.buildConvexHull(True, "Qt")
+    floor_mesh = mesh.convex
+    with open(FLOOR_POSES_PATH / floor_poses_name, "r") as f:
+        floor_se3s = json.load(f)
+    return floor_mesh, floor_se3s
 
 def img_2_world(u, K) -> np.ndarray:
     """

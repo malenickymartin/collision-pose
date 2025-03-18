@@ -1,13 +1,10 @@
 import time
-from copy import deepcopy
 from tqdm import tqdm
-import sys
 import numpy as np
 import pinocchio as pin
-from pathlib import Path
 import json
-import hppfcl
 from typing import Union
+from argparse import ArgumentParser
 
 import pydiffcol
 from pydiffcol.utils import (
@@ -23,7 +20,7 @@ from config import (MESHES_PATH,
                     POSES_OUTPUT_PATH,
                     FLOOR_POSES_PATH)
 
-from eval.eval_utils import get_se3_from_mp_json, get_se3_from_bp_cam, load_meshes, load_meshes_decomp, load_csv, load_mesh
+from eval.eval_utils import load_meshes, load_meshes_decomp, load_csv, load_mesh, load_static
 
 def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, vis:bool = None):
     """Optimizes pose of floor in YCBV BOP dataset using collision detection.
@@ -75,16 +72,6 @@ def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, v
         with open(FLOOR_POSES_PATH / (floor_name[:-5] + "_optimized.json"), "w") as f:
             json.dump(optimized_floor, f)
 
-def load_static(floor_poses_name:str):
-    """Loads floor mesh and poses from JSON file."""
-    mesh_loader = hppfcl.MeshLoader()
-    mesh = mesh_loader.load(str(FLOOR_MESH_PATH), np.array(3*[0.01]))
-    mesh.buildConvexHull(True, "Qt")
-    floor_mesh = mesh.convex
-    with open(FLOOR_POSES_PATH / floor_poses_name, "r") as f:
-        floor_se3s = json.load(f)
-    return floor_mesh, floor_se3s
-
 def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                        dataset_name: str, use_floor:Union[None, str],
                        params:dict = None, vis:bool = False):
@@ -99,30 +86,26 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
     - vis: bool, whether to visualize the optimization process
     Returns: None
     """
-    meshes_ds_name = ""
-    if dataset_name[:4] == "ycbv":
-        meshes_ds_name = "ycbv"
-    elif dataset_name[:5] == "tless":
-        meshes_ds_name = "tless"
-    else:
-        meshes_ds_name = dataset_name
-    rigid_objects = load_meshes(MESHES_PATH / meshes_ds_name)
-    rigid_objects_decomp = load_meshes_decomp(MESHES_DECOMP_PATH / meshes_ds_name)
+    print("Loading meshes")
+    rigid_objects = load_meshes(MESHES_PATH / dataset_name)
+    rigid_objects_decomp = load_meshes_decomp(MESHES_DECOMP_PATH / dataset_name)
     if vis:
-        rigid_objects_vis = load_meshes(MESHES_PATH / meshes_ds_name, convex=False)
+        rigid_objects_vis = load_meshes(MESHES_PATH / dataset_name, convex=False)
+    print("Loading input CSV")
     scenes = load_csv(POSES_OUTPUT_PATH / dataset_name / input_csv_name)
+    print("Loading floor")
     if use_floor != None:
         floor_mesh, floor_se3s = load_static(use_floor)
     if vis and use_floor != None:
         floor_mesh_vis = [load_mesh(FLOOR_MESH_PATH, convex=False)]
     else:
         floor_mesh_vis = []
-    args = SelectStrategyConfig(params['noise'], params['gauss_samples'], params["max_neighbors_search_level"], "first_order_gaussian")
     pydiffcol.set_seed(0)
-    col_req, col_req_diff = select_strategy(args)
+    col_req, col_req_diff = select_strategy(SelectStrategyConfig())
 
     with open(POSES_OUTPUT_PATH / dataset_name / output_csv_name, "w") as f:
         f.write("scene_id,im_id,obj_id,score,R,t,time\n")
+
     for scene in tqdm(scenes):
         for im in tqdm(scenes[scene]):
             curr_labels = []
@@ -159,66 +142,56 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
                     f.write(",".join([str(x) for x in csv_line]) + "\n")
 
 if __name__ == "__main__":
+    parser = ArgumentParser()
+    parser.add_argument("--dataset", "-d", type=str, required=True)
+    parser.add_argument("--init_poses", "-i", type=str, required=True)
+    parser.add_argument("--floor", "-f", default=None)
+    parser.add_argument('--version', '-v', type=str, default="")
+    parser.add_argument("--vis", action="store_true")
+
+    params = parser.add_argument_group("Optimization parameters")
+    params.add_argument("--N_step", type=int, default=3000)
+    params.add_argument("--g_grad_scale", type=float, default=1)
+    params.add_argument("--coll_grad_scale", type=float, default=1)
+    params.add_argument("--learning_rate", type=float, default=0.0001)
+    params.add_argument("--step_lr_decay", type=float, default=1)
+    params.add_argument("--step_lr_freq", type=int, default=1000)
+    params.add_argument("--std_xy", type=float, default=0.05)
+    params.add_argument("--std_z", type=float, default=0.49)
+    params.add_argument("--std_theta", type=float, default=0.26)
+
+    args = parser.parse_args()
+
+    assert (POSES_OUTPUT_PATH / args.dataset / args.init_poses).is_file(), "Input poses file does not exist"
+    assert (FLOOR_POSES_PATH / args.floor).is_file() if args.floor else True, "Floor poses file does not exist"
+
     params = {
-        "N_step": 3000,
-        "g_grad_scale": 1,
-        "coll_grad_scale": 1,
-        "coll_exp_scale": 0,
-        "learning_rate": 0.0001,
-        "step_lr_decay": 1,
-        "step_lr_freq": 1000,
-        "std_xy_z_theta": [0.05, 0.49, 0.26],
-        "noise": 1,
-        "gauss_samples": 100,
-        "max_neighbors_search_level": 1
+        "N_step": args.N_step,
+        "g_grad_scale": args.g_grad_scale,
+        "coll_grad_scale": args.coll_grad_scale,
+        "learning_rate": args.learning_rate,
+        "step_lr_decay": args.step_lr_decay,
+        "step_lr_freq": args.step_lr_freq,
+        "std_xy_z_theta": [args.std_xy, args.std_z, args.std_theta]
     }
     
-    floor_file_names = {"hopevideo":"hope_bop_floor_poses_1mm_res_optimized.json",
-                        "tless":"tless_bop_floor_poses_1mm_res_optimized.json",
-                        "ycbv":"ycbv_bop_floor_poses_1mm_res_optimized.json",
-                        "ycbvone":"ycbv_one_synt_floor_gt.json",
-                        "tlessone":"tless_one_synt_floor_gt.json"}
-    floor_names = ["optimized", "none"]
+    if args.floor == None and params["g_grad_scale"] != 0:
+        print("No floor specified, but gravity gradient scale is not 0. Please specify a floor or set gravity to zero.")
+        exit()
 
-    input_csv_names = {"hopevideo":"refiner-final-filtered_hopevideo-test.csv",
-                       "tless":"refiner-final-filtered_tless-test.csv",
-                       "ycbv":"gt-refiner-final_ycbv-test.csv",
-                       "ycbvone":"refiner-final_ycbvone-test.csv",
-                       "tlessone":"refiner-final_tlessone-test.csv"} # INPUT
-    
-    dataset_names = ["hopevideo","ycbv","tless","ycbvone","tlessone"] # INPUT
-    vis = True #INPUT
-
-    #dataset_name = dataset_names[int(sys.argv[1])]
-    dataset_name = "ycbv"
-    #params = params_try[int(sys.argv[2])]
-    #floor_name = floor_names[int(sys.argv[3])]
-    floor_name = floor_names[0]
-
-    input_csv_name = input_csv_names[dataset_name]
-    if floor_name == "none":
-        use_floor = None
-        if params["g_grad_scale"] != 0:
-            exit()
-    else:
-        use_floor = floor_file_names[dataset_name]
-    
-
-    output_csv_name = ("TEST/"
+    version_file_name = f"{args.version}-" if args.version != "" else ""
+    floor_file_name = f"true_" if args.floor != None else "false_"
+    output_csv_name = (f"{version_file_name}"
+                       f"{params['N_step']}-"
                        f"{params['g_grad_scale']}-"
                        f"{params['coll_grad_scale']}-"
                        f"{params['learning_rate']}-"
                        f"{params['step_lr_decay']}-"
                        f"{params['step_lr_freq']}-"
                        f"{params['std_xy_z_theta'][0]}-{params['std_xy_z_theta'][1]}-{params['std_xy_z_theta'][2]}-"
-                       f"{params['coll_exp_scale']}-"
-                       f"{floor_name}_"
-                       f"{dataset_name}-test").replace(".","") + ".csv"
-    print(f"File name: {output_csv_name}")
-    if floor_name == "none":
-        use_floor = None
-        if params["g_grad_scale"] != 0:
-            exit()
-    else:
-        use_floor = floor_file_names[dataset_name]
-    save_optimized_bop(input_csv_name, output_csv_name, dataset_name, use_floor, params, vis)
+                       f"{floor_file_name}"
+                       f"{args.dataset}-test").replace(".","") + ".csv"
+    (POSES_OUTPUT_PATH / args.dataset / output_csv_name).parent.mkdir(parents=True, exist_ok=True)
+    print(f"Output file name: {output_csv_name}")
+
+    save_optimized_bop(args.init_poses, output_csv_name, args.dataset, args.floor, params, args.vis)

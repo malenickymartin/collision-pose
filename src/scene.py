@@ -27,8 +27,8 @@ def get_permutation_indices(N):
 @dataclass
 class SelectStrategyConfig:
     """"""
-    noise: float = 1e-3
-    num_samples: int = 10
+    noise: float = 1
+    num_samples: int = 50
     max_neighbors_search_level: float = 1
     strategy: str = "first_order_gaussian"
 

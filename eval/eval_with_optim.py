@@ -143,11 +143,16 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
 
 if __name__ == "__main__":
     parser = ArgumentParser()
-    parser.add_argument("--dataset", "-d", type=str, required=True)
-    parser.add_argument("--init_poses", "-i", type=str, required=True)
-    parser.add_argument("--floor", "-f", default=None)
-    parser.add_argument('--version', '-v', type=str, default="")
-    parser.add_argument("--vis", action="store_true")
+    parser.add_argument("--dataset", "-d", type=str, required=True,
+                        help="Name of the dataset")
+    parser.add_argument("--init_poses", "-i", type=str, required=True,
+                        help="Name of the input poses .csv file relative to the POSES_OUTPUT_PATH/dataset directory.")
+    parser.add_argument("--floor", "-f", default=None,
+                        help="Name of the floor .json file relative to the FLOOR_POSES_PATH directory.")
+    parser.add_argument('--version', '-v', type=str, default="",
+                        help="Version name which will be added to the output file name.")
+    parser.add_argument("--vis", action="store_true",
+                        help="Visualize the init and optimized poses and plot the costs and gradients for each image.")
 
     params = parser.add_argument_group("Optimization parameters")
     params.add_argument("--N_step", type=int, default=3000)

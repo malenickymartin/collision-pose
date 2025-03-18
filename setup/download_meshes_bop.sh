@@ -4,8 +4,8 @@ if [ $# -eq 0 ]; then
     echo "Usage: $0 <new_value>"
     exit 1
 fi
-mkdir -p eval/data/meshes
-cd eval/data/meshes
+mkdir -p data/meshes
+cd data/meshes
 wget -O data.zip https://huggingface.co/datasets/bop-benchmark/${1}/resolve/main/${1}_models.zip
 unzip data.zip
 rm -rf data.zip models_eval models_fine

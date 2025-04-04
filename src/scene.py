@@ -93,7 +93,7 @@ class DiffColScene:
 
     def compute_gravity(self, wMo_lst: List[pin.SE3], 
                         col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-                        cost_c_obj: np.ndarray, cost_c_stat: np.ndarray
+                        num_colls: np.ndarray
                         ) -> Tuple[np.ndarray, np.ndarray]:
         """
         Compute gravity gradient and cost for all objects.
@@ -119,7 +119,7 @@ class DiffColScene:
             floor_decomp = [floor_convex]
 
         for i in range(N):
-            if cost_c_stat[i] > 0 or cost_c_obj[i] > 0:
+            if num_colls[i] > 0:
                 continue
             object_convex, wMo = self.shapes_convex[i], normalize_se3(wMo_lst[i])
             if len(self.shapes_decomp) > 0:
@@ -141,7 +141,7 @@ class DiffColScene:
 
     def compute_diffcol(self, wMo_lst: List[pin.SE3], 
                         col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-                        ) -> Tuple[np.ndarray, np.ndarray]:
+                        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute diffcol for all objects.
 
@@ -186,7 +186,7 @@ class DiffColScene:
 
     def compute_diffcol_static(self, wMo_lst: List[pin.SE3],
                                col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-                               ) -> Tuple[np.ndarray, np.ndarray]:
+                               ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute diffcol for all objects with static objects.
 
@@ -340,7 +340,7 @@ class DiffColScene:
     def compute_gravity_convex(
             self, object_convex: hppfcl.Convex, wMo: pin.SE3, floor_convex: hppfcl.Convex, wMs: pin.SE3,
             col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest
-            ) -> Tuple[float, np.ndarray, np.ndarray]:
+            ) -> Tuple[float, np.ndarray]:
         """
         Compute gravity gradient and cost for one object.
 
@@ -374,7 +374,7 @@ class DiffColScene:
             self, object_convex: hppfcl.Convex, object_decomp: List[hppfcl.Convex], wMo: pin.SE3,
             floor_convex: hppfcl.Convex, floor_decomp: List[hppfcl.Convex], wMs: List[pin.SE3],
             col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest
-            ) -> Tuple[float, np.ndarray, np.ndarray]:
+            ) -> Tuple[float, np.ndarray]:
         """
         Compute gravity gradient and cost for one object with decomposed shapes.
 

@@ -28,7 +28,7 @@ def get_permutation_indices(N):
 class SelectStrategyConfig:
     """"""
     noise: float = 1
-    num_samples: int = 50
+    num_samples: int = 100
     max_neighbors_search_level: float = 1
     strategy: str = "first_order_gaussian"
 
@@ -119,7 +119,7 @@ class DiffColScene:
             floor_decomp = [floor_convex]
 
         for i in range(N):
-            if cost_c_stat[i] > 1e-6 and cost_c_obj[i] > 1e-6:
+            if cost_c_stat[i] > 0 or cost_c_obj[i] > 0:
                 continue
             object_convex, wMo = self.shapes_convex[i], normalize_se3(wMo_lst[i])
             if len(self.shapes_decomp) > 0:
@@ -157,29 +157,31 @@ class DiffColScene:
         index_pairs = get_permutation_indices(N)
         grad = np.zeros(6*N)
         cost_c = np.zeros(N)
+        num_colls = np.zeros(N)
 
         for i1, i2 in index_pairs:
             shape1, shape2 = self.shapes_convex[i1], self.shapes_convex[i2] 
             M1, M2 = normalize_se3(wMo_lst[i1]), normalize_se3(wMo_lst[i2])
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
-                sum_coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
+                coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
                                                                             shape2, shape2_decomp, M2, 
                                                                             col_req, col_req_diff)
             else:
-                sum_coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1,
+                coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1,
                                                                             shape2, M2,
                                                                             col_req, col_req_diff)
                 
-            if sum_coll_dist > 0:
-                cost_c[i1] += sum_coll_dist
-                cost_c[i2] += sum_coll_dist
+            if coll_dist > 0:
+                num_colls[i1] += 1
+                num_colls[i2] += 1
+                cost_c[i1] += coll_dist
+                cost_c[i2] += coll_dist
                 grad[6*i1:6*i1+6] += grad_1
                 grad[6*i2:6*i2+6] += grad_2
+            self.col_res_pairs[(i1, i2)] = coll_dist
 
-            self.col_res_pairs[(i1, i2)] = sum_coll_dist
-
-        return cost_c, grad
+        return cost_c, grad, num_colls
 
 
     def compute_diffcol_static(self, wMo_lst: List[pin.SE3],
@@ -200,6 +202,7 @@ class DiffColScene:
         M = len(self.wMs_lst)
         grad = np.zeros(6*N)
         cost_c = np.zeros(N)
+        num_colls = np.zeros(N)
 
         for i1 in range(N):
             for i2 in range(M):
@@ -222,11 +225,12 @@ class DiffColScene:
                                                                        col_req, col_req_diff)
                     
                 if coll_dist > 0: # if there is a collision between object and static object
+                    num_colls[i1] += 1
                     cost_c[i1] += coll_dist
                     grad[6*i1:6*i1+6] += grad_1
                 self.col_res_pairs_stat[(i1, i2)] = coll_dist
 
-        return cost_c, grad
+        return cost_c, grad, num_colls
     
     def compute_diffcol_convex(
             self, convex_1: hppfcl.Convex, M1: pin.SE3, convex_2: hppfcl.Convex, M2: pin.SE3,
@@ -309,6 +313,9 @@ class DiffColScene:
                 decomp_2_in_coll.append(True)
             else:
                 decomp_2_in_coll.append(False)
+
+        if not (np.any(decomp_1_in_coll) and np.any(decomp_2_in_coll)):
+            return coll_dist, grad_1, grad_2
 
         num_colls = 0
         for i, part_1 in enumerate(decomp_1):

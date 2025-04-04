@@ -101,13 +101,13 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
             learning_rate *= lr_decay
 
         # Compute obj-obj collision gradient
-        cost_c_obj, grad_c_obj = dc_scene.compute_diffcol(X, col_req, col_req_diff)
+        cost_c_obj, grad_c_obj, num_colls_obj = dc_scene.compute_diffcol(X, col_req, col_req_diff)
 
         # Compute obj-static collision gradient
         if len(dc_scene.statics_convex) > 0:
-            cost_c_stat, grad_c_stat = dc_scene.compute_diffcol_static(X, col_req, col_req_diff)
+            cost_c_stat, grad_c_stat, num_colls_stat = dc_scene.compute_diffcol_static(X, col_req, col_req_diff)
         else:
-            cost_c_stat, grad_c_stat = np.zeros(N_SHAPES), np.zeros(6*N_SHAPES)
+            cost_c_stat, grad_c_stat, num_colls_stat = np.zeros(N_SHAPES), np.zeros(6*N_SHAPES), np.zeros(N_SHAPES)
 
         # Compute gravity gradient
         if g_grad_scale and len(dc_scene.statics_convex) > 0:
@@ -119,6 +119,19 @@ def optim(dc_scene: DiffColScene, wMo_lst_init: List[pin.SE3],
         res_p, grad_p = perception_res_grad(X, wMo_lst_init, L_lst, error_fun=error_r3_so3)
 
         grad_c = grad_c_obj + grad_c_stat
+        num_colls = num_colls_obj + num_colls_stat
+        for j in range(N_SHAPES):
+            if num_colls[j] > 0:
+                grad_c[6*j:6*j+6] = grad_c[6*j:6*j+6]/num_colls[j]
+
+        # Check if XOR between grad_g and grad_c is false for any element
+        # grad_g_norms = np.array([norm(grad_g[6*j:6*j+6]) for j in range(N_SHAPES)])
+        # grad_c_norms = np.array([norm(grad_c[6*j:6*j+6]) for j in range(N_SHAPES)])
+        # xor_check = np.logical_xor(grad_g_norms != 0, grad_c_norms != 0)
+        # if not np.all(xor_check):
+        #     print("XOR between grad_g and grad_c is false for some elements.")
+        #     dc_scene.compute_gravity(X, col_req, col_req_diff, cost_c_obj, cost_c_stat)
+
         grad = coll_grad_scale*grad_c + grad_p + g_grad_scale * grad_g
         grad = clip_grad(grad)
         dx = -learning_rate*grad

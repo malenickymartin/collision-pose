@@ -167,8 +167,8 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    assert (POSES_OUTPUT_PATH / args.dataset / args.init_poses).is_file(), "Input poses file does not exist"
-    assert (FLOOR_POSES_PATH / args.floor).is_file() if args.floor else True, "Floor poses file does not exist"
+    assert (POSES_OUTPUT_PATH / args.dataset / args.init_poses).is_file(), f"Input poses file does not exist: {POSES_OUTPUT_PATH / args.dataset / args.init_poses}"
+    assert (FLOOR_POSES_PATH / args.floor).is_file() if args.floor else True, f"Floor poses file does not exist: {FLOOR_POSES_PATH / args.floor}"
 
     params = {
         "N_step": args.N_step,
@@ -184,9 +184,8 @@ if __name__ == "__main__":
         print("No floor specified, but gravity gradient scale is not 0. Please specify a floor or set gravity to zero.")
         exit()
 
-    version_file_name = f"{args.version}-" if args.version != "" else ""
     floor_file_name = f"true_" if args.floor != None else "false_"
-    output_csv_name = (f"{version_file_name}"
+    output_csv_name = (f"{args.version}"
                        f"{params['N_step']}-"
                        f"{params['g_grad_scale']}-"
                        f"{params['coll_grad_scale']}-"

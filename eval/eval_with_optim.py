@@ -66,8 +66,8 @@ def save_optimized_floor(dataset_name:str, floor_name:str, params:dict = None, v
             if wMo_lst is None:
                 optimized_floor[scene][im] = None
                 continue
-            dc_scene = DiffColScene(curr_meshes, curr_stat_meshes, wMs_lst, [], curr_stat_meshes_decomp, pre_loaded_meshes=True)
-            X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, curr_meshes_stat_vis)
+            dc_scene = DiffColScene(col_req, col_req_diff, curr_meshes, curr_stat_meshes, wMs_lst, [], curr_stat_meshes_decomp, pre_loaded_meshes=True)
+            X = optim(dc_scene, wMo_lst, params, curr_meshes_vis, curr_meshes_stat_vis)
             optimized_floor[scene][im] = {"R": X[0].rotation.tolist(), "t": (X[0].translation).tolist()}
         with open(FLOOR_POSES_PATH / (floor_name[:-5] + "_optimized.json"), "w") as f:
             json.dump(optimized_floor, f)
@@ -127,11 +127,11 @@ def save_optimized_bop(input_csv_name:str, output_csv_name:str,
             if use_floor:
                 wMs = floor_se3s[str(scene)][str(im)]
                 wMs, stat_meshes = ([], []) if wMs is None else ([pin.SE3(np.array(wMs["R"]), np.array(wMs["t"]))], [floor_mesh])
-                dc_scene = DiffColScene(curr_meshes, stat_meshes, wMs, curr_meshes_decomp, pre_loaded_meshes=True)
+                dc_scene = DiffColScene(col_req, col_req_diff, curr_meshes, stat_meshes, wMs, curr_meshes_decomp, pre_loaded_meshes=True)
             else:
-                dc_scene = DiffColScene(curr_meshes, [], [], curr_meshes_decomp, pre_loaded_meshes=True)
+                dc_scene = DiffColScene(col_req, col_req_diff, curr_meshes, [], [], curr_meshes_decomp, pre_loaded_meshes=True)
             start_time = time.time()
-            X = optim(dc_scene, wMo_lst, col_req, col_req_diff, params, curr_meshes_vis, floor_mesh_vis)
+            X = optim(dc_scene, wMo_lst, params, curr_meshes_vis, floor_mesh_vis)
             optim_time = (time.time() - start_time)
             for i in range(len(X)):
                 # One CSV row

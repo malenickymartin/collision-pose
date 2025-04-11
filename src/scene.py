@@ -50,13 +50,18 @@ class DiffColScene:
 
     """
     def __init__(
-            self, obj_paths: List[Union[str, hppfcl.Convex]], stat_paths: List[Union[str, hppfcl.Convex]] = [],
+            self, col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
+            obj_paths: List[Union[str, hppfcl.Convex]], stat_paths: List[Union[str, hppfcl.Convex]] = [],
             wMs_lst: List[pin.SE3] = [], obj_decomp_paths: List[Union[str, List[hppfcl.Convex]]] = [],
             stat_decomp_paths: List[Union[str, List[hppfcl.Convex]]] = [], scale: float = 1.0,
             pre_loaded_meshes: bool = False
             ) -> None:
 
         assert len(stat_paths) == len(wMs_lst)
+
+        self.col_req = col_req
+        self.col_req_diff = col_req_diff
+
         self.wMs_lst = wMs_lst
 
         self.col_res_pairs = {}
@@ -92,7 +97,6 @@ class DiffColScene:
             print("Meshes loaded.")
 
     def compute_gravity(self, wMo_lst: List[pin.SE3], 
-                        col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
                         num_colls: np.ndarray
                         ) -> Tuple[np.ndarray, np.ndarray]:
         """
@@ -100,7 +104,6 @@ class DiffColScene:
 
         Inputs:
         - wMo_lst: list of poses of objects
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
         - cost_c_obj: np.ndarray of shape (N,)
         - cost_c_stat: np.ndarray of shape (N,)
 
@@ -125,12 +128,10 @@ class DiffColScene:
             if len(self.shapes_decomp) > 0:
                 object_decomp = self.shapes_decomp[i]
                 grav_dist, grad_1 = self.compute_gravity_decomp(object_convex, object_decomp, wMo,
-                                                                floor_convex, floor_decomp, wMs, 
-                                                                col_req, col_req_diff)
+                                                                floor_convex, floor_decomp, wMs)
             else:
                 grav_dist, grad_1 = self.compute_gravity_convex(object_convex, wMo, 
-                                                                floor_convex, wMs,
-                                                                col_req, col_req_diff)
+                                                                floor_convex, wMs)
 
             if grav_dist > 0:    
                 cost_g[i] += grav_dist
@@ -139,15 +140,12 @@ class DiffColScene:
         return cost_g, grad
     
 
-    def compute_diffcol(self, wMo_lst: List[pin.SE3], 
-                        col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-                        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def compute_diffcol(self, wMo_lst: List[pin.SE3]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute diffcol for all objects.
 
         Inputs:
         - wMo_lst: list of poses of objects
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
 
         Returns:
         - cost_c: np.ndarray of shape (N,)
@@ -164,13 +162,9 @@ class DiffColScene:
             M1, M2 = normalize_se3(wMo_lst[i1]), normalize_se3(wMo_lst[i2])
             if len(self.shapes_decomp) > 0:
                 shape1_decomp, shape2_decomp = self.shapes_decomp[i1], self.shapes_decomp[i2]
-                coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1,
-                                                                            shape2, shape2_decomp, M2, 
-                                                                            col_req, col_req_diff)
+                coll_dist, grad_1, grad_2 = self.compute_diffcol_decomp(shape1, shape1_decomp, M1, shape2, shape2_decomp, M2)
             else:
-                coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1,
-                                                                            shape2, M2,
-                                                                            col_req, col_req_diff)
+                coll_dist, grad_1, grad_2 = self.compute_diffcol_convex(shape1, M1, shape2, M2)
                 
             if coll_dist > 0:
                 num_colls[i1] += 1
@@ -184,15 +178,12 @@ class DiffColScene:
         return cost_c, grad, num_colls
 
 
-    def compute_diffcol_static(self, wMo_lst: List[pin.SE3],
-                               col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest,
-                               ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def compute_diffcol_static(self, wMo_lst: List[pin.SE3]) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
         Compute diffcol for all objects with static objects.
 
         Inputs:
         - wMo_lst: list of poses of objects
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
 
         Returns:
         - cost_c: float
@@ -210,9 +201,7 @@ class DiffColScene:
                 static_convex, wMs = self.statics_convex[i2], normalize_se3(self.wMs_lst[i2])
 
                 if len(self.shapes_decomp) == 0 and len(self.statics_decomp) == 0: # both shapes and statics are convex
-                    coll_dist, grad_1, _ = self.compute_diffcol_convex(shape_convex, wMo,
-                                                                       static_convex, wMs,
-                                                                       col_req, col_req_diff)
+                    coll_dist, grad_1, _ = self.compute_diffcol_convex(shape_convex, wMo, static_convex, wMs)
                 else:
                     if len(self.shapes_decomp) > 0 and len(self.statics_decomp) > 0: # both shapes and statics are decomposed
                         shape_decomp, static_decomp = self.shapes_decomp[i1], self.statics_decomp[i2]
@@ -221,8 +210,7 @@ class DiffColScene:
                     else: # only statics are decomposed
                         shape_decomp, static_decomp = [self.shapes_convex[i1]], self.statics_decomp[i2]
                     coll_dist, grad_1, _ = self.compute_diffcol_decomp(shape_convex, shape_decomp, wMo,
-                                                                       static_convex, static_decomp, wMs, 
-                                                                       col_req, col_req_diff)
+                                                                       static_convex, static_decomp, wMs)
                     
                 if coll_dist > 0: # if there is a collision between object and static object
                     num_colls[i1] += 1
@@ -234,7 +222,6 @@ class DiffColScene:
     
     def compute_diffcol_convex(
             self, convex_1: hppfcl.Convex, M1: pin.SE3, convex_2: hppfcl.Convex, M2: pin.SE3,
-            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest
             ) -> Tuple[float, np.ndarray, np.ndarray]:
         """
         Compute diffcol using only convex hulls.
@@ -242,7 +229,6 @@ class DiffColScene:
         Inputs:
         - convex_1, convex_2: hppfcl.Convex
         - M1, M2: pin.SE3
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
 
         Returns:
         - coll_dist: float
@@ -255,12 +241,12 @@ class DiffColScene:
         grad_2 = np.zeros(6)
         coll_dist = 0
 
-        _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
+        _ = pydiffcol.distance(convex_1, M1, convex_2, M2, self.col_req, col_res)
         if col_res.dist >= 0:
             # no collision between convex hulls
             return coll_dist, grad_1, grad_2
         
-        pydiffcol.distance_derivatives(convex_1, M1, convex_2, M2, col_req, col_res, col_req_diff, col_res_diff)
+        pydiffcol.distance_derivatives(convex_1, M1, convex_2, M2, self.col_req, col_res, self.col_req_diff, col_res_diff)
         grad_1 = -col_res_diff.ddist_dM1
         grad_2 = -col_res_diff.ddist_dM2
         coll_dist = -col_res.dist
@@ -270,7 +256,6 @@ class DiffColScene:
     def compute_diffcol_decomp(
             self, convex_1: hppfcl.Convex, decomp_1: List[hppfcl.Convex], M1: pin.SE3,
             convex_2: hppfcl.Convex, decomp_2: List[hppfcl.Convex], M2: List[pin.SE3],
-            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest
             ) -> Tuple[float, np.ndarray, np.ndarray]:
         """
         Compute diffcol using both convex hulls and convex decomposed shapes.
@@ -279,7 +264,6 @@ class DiffColScene:
         - convex_1, convex_2: hppfcl.Convex
         - decomp_1, decomp_2: list of hppfcl.Convex
         - M1, M2: pin.SE3
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
 
         Returns:
         - coll_dist: float
@@ -291,7 +275,7 @@ class DiffColScene:
         grad_1 = np.zeros(6)
         grad_2 = np.zeros(6)
         coll_dist = 0
-        _ = pydiffcol.distance(convex_1, M1, convex_2, M2, col_req, col_res)
+        _ = pydiffcol.distance(convex_1, M1, convex_2, M2, self.col_req, col_res)
         if col_res.dist >= 0:
             # no collision between convex hulls
             return coll_dist, grad_1, grad_2
@@ -299,7 +283,7 @@ class DiffColScene:
         # check which parts of decomp_1 are in collision with convex_2
         decomp_1_in_coll = []
         for part_1 in decomp_1:
-            _ = pydiffcol.distance(part_1, M1, convex_2, M2, col_req, col_res)
+            _ = pydiffcol.distance(part_1, M1, convex_2, M2, self.col_req, col_res)
             if col_res.dist < 0:
                 decomp_1_in_coll.append(True)
             else:
@@ -308,7 +292,7 @@ class DiffColScene:
         # check which parts of decomp_2 are in collision with convex_1
         decomp_2_in_coll = []
         for part_2 in decomp_2:
-            _ = pydiffcol.distance(part_2, M2, convex_1, M1, col_req, col_res)
+            _ = pydiffcol.distance(part_2, M2, convex_1, M1, self.col_req, col_res)
             if col_res.dist < 0:
                 decomp_2_in_coll.append(True)
             else:
@@ -322,11 +306,11 @@ class DiffColScene:
             if decomp_1_in_coll[i]:
                 for j, part_2 in enumerate(decomp_2):
                     if decomp_2_in_coll[j]:
-                        _ = pydiffcol.distance(part_1, M1, part_2, M2, col_req, col_res)
+                        _ = pydiffcol.distance(part_1, M1, part_2, M2, self.col_req, col_res)
                         if col_res.dist < 0:
                             coll_dist -= col_res.dist
                             num_colls += 1
-                            pydiffcol.distance_derivatives(part_1, M1, part_2, M2, col_req, col_res, col_req_diff, col_res_diff)
+                            pydiffcol.distance_derivatives(part_1, M1, part_2, M2, self.col_req, col_res, self.col_req_diff, col_res_diff)
                             grad_1 += -col_res_diff.ddist_dM1
                             grad_2 += -col_res_diff.ddist_dM2               
 
@@ -339,7 +323,6 @@ class DiffColScene:
 
     def compute_gravity_convex(
             self, object_convex: hppfcl.Convex, wMo: pin.SE3, floor_convex: hppfcl.Convex, wMs: pin.SE3,
-            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest
             ) -> Tuple[float, np.ndarray]:
         """
         Compute gravity gradient and cost for one object.
@@ -347,7 +330,6 @@ class DiffColScene:
         Inputs:
         - object_convex, floor_convex: hppfcl.Convex
         - wMo, wMs: pin.SE3
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
 
         Returns:
         - grav_dist: float
@@ -359,12 +341,12 @@ class DiffColScene:
         grad = np.zeros(6)
         grav_dist = 0
 
-        _ = pydiffcol.distance(object_convex, wMo, floor_convex, wMs, col_req, col_res)
+        _ = pydiffcol.distance(object_convex, wMo, floor_convex, wMs, self.col_req, col_res)
         if col_res.dist <= 0:
             # convex hulls on collision
             return grav_dist, grad
         
-        pydiffcol.distance_derivatives(object_convex, wMo, floor_convex, wMs, col_req, col_res, col_req_diff, col_res_diff)
+        pydiffcol.distance_derivatives(object_convex, wMo, floor_convex, wMs, self.col_req, col_res, self.col_req_diff, col_res_diff)
         grad = col_res_diff.ddist_dM1
         grav_dist = col_res.dist
     
@@ -373,7 +355,6 @@ class DiffColScene:
     def compute_gravity_decomp(
             self, object_convex: hppfcl.Convex, object_decomp: List[hppfcl.Convex], wMo: pin.SE3,
             floor_convex: hppfcl.Convex, floor_decomp: List[hppfcl.Convex], wMs: List[pin.SE3],
-            col_req: hppfcl.DistanceRequest, col_req_diff: pydiffcol.DerivativeRequest
             ) -> Tuple[float, np.ndarray]:
         """
         Compute gravity gradient and cost for one object with decomposed shapes.
@@ -382,7 +363,6 @@ class DiffColScene:
         - object_convex, floor_convex: hppfcl.Convex
         - object_decomp, floor_decomp: list of hppfcl.Convex
         - wMo, wMs: pin.SE3
-        - col_req, col_req_diff: hppfcl.DistanceRequest, pydiffcol.DerivativeRequest
 
         Returns:
         - grav_dist: float
@@ -393,7 +373,7 @@ class DiffColScene:
 
         grad = np.zeros(6)
         grav_dist = 0
-        _ = pydiffcol.distance(object_convex, wMo, floor_convex, wMs, col_req, col_res)
+        _ = pydiffcol.distance(object_convex, wMo, floor_convex, wMs, self.col_req, col_res)
         if col_res.dist <= 0:
             # convex hulls in collision
             return grav_dist, grad
@@ -401,11 +381,11 @@ class DiffColScene:
         num_grav = 0
         for i, part_1 in enumerate(floor_decomp):
                 for j, part_2 in enumerate(object_decomp):
-                    _ = pydiffcol.distance(part_1, wMs, part_2, wMo, col_req, col_res)
+                    _ = pydiffcol.distance(part_1, wMs, part_2, wMo, self.col_req, col_res)
                     if col_res.dist >= 0:
                         grav_dist += col_res.dist
                         num_grav += 1
-                        pydiffcol.distance_derivatives(part_1, wMs, part_2, wMo, col_req, col_res, col_req_diff, col_res_diff)
+                        pydiffcol.distance_derivatives(part_1, wMs, part_2, wMo, self.col_req, col_res, self.col_req_diff, col_res_diff)
                         grad += col_res_diff.ddist_dM2
 
         if num_grav > 0:

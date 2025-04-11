@@ -31,7 +31,7 @@ from happypose.toolbox.visualization.utils import make_contour_overlay
 from happypose.toolbox.detector.object_detection import get_bboxes
 
 # CollisionPose
-from src.optimizer import three_phase_optim
+from src.optimizer import optim
 from src.scene import DiffColScene, SelectStrategyConfig
 import pydiffcol
 from pydiffcol.utils import select_strategy
@@ -196,8 +196,8 @@ class CollisionResolver:
                 if len(self.stat_meshes_decomp) > 0:
                     curr_static_meshes_decomp.append(self.stat_meshes_decomp[label])
                 wMs_lst.append(static_poses[label])
-        dc_scene = DiffColScene(curr_meshes, curr_static_meshes, wMs_lst, curr_meshes_decomp, curr_static_meshes_decomp, pre_loaded_meshes=True)
-        X = three_phase_optim(dc_scene, wMo_lst, self.col_req, self.col_req_diff, self.params, curr_meshes_vis, curr_static_meshes_vis)
+        dc_scene = DiffColScene(self.col_req, self.col_req_diff, curr_meshes, curr_static_meshes, wMs_lst, curr_meshes_decomp, curr_static_meshes_decomp, pre_loaded_meshes=True)
+        X = optim(dc_scene, wMo_lst, self.params, curr_meshes_vis, curr_static_meshes_vis)
 
         final_poses = {}
         for se3, label in zip(X, labels):

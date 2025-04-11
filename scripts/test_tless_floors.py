@@ -53,9 +53,9 @@ for scene in scenes:
             wMo_lst.append(wMo)
         wMs = floor_se3s[str(scene)][str(im)]
         wMs, stat_meshes = ([], []) if wMs is None else ([pin.SE3(np.array(wMs["R"]), np.array(wMs["t"]))], [floor_mesh])
-        dc_scene = DiffColScene(curr_meshes, stat_meshes, wMs, curr_meshes_decomp, pre_loaded_meshes=True)
-        dc_scene.compute_diffcol(wMo_lst, col_req, col_req_diff, diffcol=False)
-        dc_scene.compute_diffcol_static(wMo_lst, col_req, col_req_diff, diffcol=False)
+        dc_scene = DiffColScene(col_req, col_req_diff, curr_meshes, stat_meshes, wMs, curr_meshes_decomp, pre_loaded_meshes=True)
+        dc_scene.compute_diffcol(wMo_lst, diffcol=False)
+        dc_scene.compute_diffcol_static(wMo_lst, diffcol=False)
         draw_scene(vis, curr_meshes_vis, floor_mesh_vis, wMo_lst, dc_scene.wMs_lst, dc_scene.col_res_pairs, dc_scene.col_res_pairs_stat)
         input(f"Scene {scene}, image {im} - Press Enter to continue...")
     

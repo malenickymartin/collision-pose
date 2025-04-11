@@ -150,7 +150,7 @@ if __name__ == "__main__":
     parser.add_argument("--floor", "-f", default=None,
                         help="Name of the floor .json file relative to the FLOOR_POSES_PATH directory.")
     parser.add_argument('--version', '-v', type=str, default="",
-                        help="Version name which will be added to the output file name.")
+                        help="Version name which will be added in front of the output file name (can be a path relative to POSES_OUTPUT_PATH/dataset ended by /).")
     parser.add_argument("--vis", action="store_true",
                         help="Visualize the init and optimized poses and plot the costs and gradients for each image.")
 
@@ -199,3 +199,5 @@ if __name__ == "__main__":
     print(f"Output file name: {output_csv_name}")
 
     save_optimized_bop(args.init_poses, output_csv_name, args.dataset, args.floor, params, args.vis)
+
+    print(f"Optimization done. File saved to {POSES_OUTPUT_PATH / args.dataset / output_csv_name}")
